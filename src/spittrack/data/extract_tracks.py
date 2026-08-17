@@ -40,8 +40,8 @@ def extract_track_manifest(
         from ultralytics import YOLO
     except ImportError as exc:  # pragma: no cover - exercised on Kaggle
         raise RuntimeError("ultralytics is required for person detection and tracking") from exc
-    run_id = tracking_run_id(detector_config, tracker_config)
     model = YOLO(detector_config["weights"])
+    run_id = tracking_run_id(detector_config, tracker_config)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "source_id",

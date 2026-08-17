@@ -13,8 +13,13 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from spittrack.evaluation.window_metrics import binary_window_metrics, select_f1_threshold
+from spittrack.evaluation.window_metrics import (
+    binary_window_metrics,
+    hard_negative_false_positive_counts,
+    select_f1_threshold,
+)
 from spittrack.models.resnet50 import ResNet50Classifier
+from spittrack.common.reproducibility import capture_rng_state, restore_rng_state
 
 LOGGER = logging.getLogger(__name__)
 
@@ -120,6 +125,7 @@ def _checkpoint_payload(
         "validation_threshold": threshold,
         "config_sha256": config_sha256,
         "manifest_sha256": manifest_sha256,
+        "rng_state": capture_rng_state(),
     }
 
 
@@ -176,6 +182,8 @@ def train_resnet50(
         best_threshold = float(resume_payload["validation_threshold"])
         resume_stage = int(resume_payload["stage"])
         resume_epoch = int(resume_payload["epoch"])
+        if "rng_state" in resume_payload:
+            restore_rng_state(resume_payload["rng_state"])
 
     log_path = run_dir / "metrics.csv"
     if not log_path.exists():
@@ -278,16 +286,37 @@ def train_resnet50(
         "validation_threshold": float(best_payload["validation_threshold"]),
         "validation": metrics,
         "outer_test": test_metrics,
+        "hard_negative_false_positive_counts": hard_negative_false_positive_counts(
+            test.labels,
+            test.probabilities,
+            [str(item["negative_subtype"]) for item in test.metadata],
+            threshold=frozen_threshold,
+        ),
+        "classifier_performance": {
+            "device": str(device),
+            "scope": "center_frame_classifier_only_including_dataloader",
+            "outer_test_windows_per_second": len(test.labels) / max(test.elapsed_s, 1e-12),
+            "outer_test_sampled_frames_per_second": len(test.labels) / max(test.elapsed_s, 1e-12),
+            "outer_test_mean_latency_ms_per_window": (
+                1000 * test.elapsed_s / max(len(test.labels), 1)
+            ),
+        },
     }
     (run_dir / "metrics.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     predictions_path = run_dir / "outer_test_predictions.csv"
-    with predictions_path.open("w", encoding="utf-8") as stream:
-        stream.write("window_id,source_id,track_id,label,probability,threshold,prediction\n")
+    with predictions_path.open("w", encoding="utf-8", newline="") as stream:
+        stream.write(
+            "window_id,source_id,track_id,start_s,end_s,bbox_x1,bbox_y1,bbox_x2,bbox_y2,"
+            "negative_subtype,label,probability,threshold,prediction\n"
+        )
         for metadata, label, probability in zip(test.metadata, test.labels, test.probabilities):
             stream.write(
                 f"{metadata['window_id']},{metadata['source_id']},{metadata['track_id']},"
+                f"{metadata['start_s']},{metadata['end_s']},{metadata['bbox_x1']},"
+                f"{metadata['bbox_y1']},{metadata['bbox_x2']},{metadata['bbox_y2']},"
+                f"{metadata['negative_subtype']},"
                 f"{label},{probability:.10f},{frozen_threshold:.10f},"
                 f"{int(probability >= frozen_threshold)}\n"
             )

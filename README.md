@@ -12,7 +12,7 @@ No metric, label, checkpoint, or dataset artifact is fabricated. Missing or malf
 
 ## Current milestone
 
-The repository currently implements the empty data contract, strict metadata and annotation validation, balanced immutable fold construction, 25 FPS normalization, configuration-bound YOLOv8s/ByteTrack extraction, deterministic crop materialization, the frozen overlap-label rule, two-stage ResNet50 Kaggle training, a pretrained VideoMAE adapter, pure event aggregation, strict complete-matrix CV aggregation, and the staged-real execution guard. VideoMAE training and full-frame materialization are the next model milestone.
+The repository implements the empty data contract, strict validation, balanced immutable folds, deterministic track-crop and full-frame windows, all required model families, event/CV aggregation, policy-frozen final retraining, CPU-default full-video inference and evidence rendering, and a durable one-time staged-real runner.
 
 ## Scientific pipeline
 
@@ -105,7 +105,7 @@ Ignored windows remain counted in logs and the index but must be excluded from t
 python scripts/build_windows.py
 ```
 
-The resulting index is deliberately fold-independent. Training joins its source IDs to committed fold manifests at runtime, avoiding duplicated window indexes with stale fold roles.
+This writes `windows.csv` for person tracks and `windows_fullframe.csv` for the scene-level ablation. Full-frame windows are generated once per source/time span rather than duplicated for every detected person. Both indexes are deliberately fold-independent; training joins source IDs to committed manifests at runtime, avoiding stale fold roles.
 
 ## ResNet50 Kaggle job
 
@@ -120,25 +120,78 @@ python scripts/train_kaggle.py \
 
 The implementation writes resumable `last.pt`, best-validation `best.pt`, validation and untouched outer-test metrics, outer-test predictions, config and fold snapshots, environment details, `pip freeze`, and seed/config/manifest hashes. `--fold all` runs folds sequentially into collision-free directories; separate accounts should normally receive one fold each. `--resume` requires and validates the existing `last.pt` hashes.
 
+## Mandatory first Kaggle smoke gate
+
+The first Kaggle GPU session must run the isolated smoke gate before any scientific job:
+
+```bash
+python scripts/kaggle_smoke_test.py --fold 1
+```
+
+It verifies the installed Torch, torchvision, Ultralytics, Transformers and OpenCV distributions; CUDA/AMP; a real materialized training batch; one ResNet50 optimizer step; and checkpoint reload. It never opens validation or outer-test data and writes `scientific_result=false` in `smoke_report.json`.
+
 ## Kaggle execution policy
 
-Before the full experiment matrix, run a roughly ten-minute ResNet50 smoke test on one populated fold. It must verify CUDA and AMP, imports, data loading, a tiny batch, at least one optimizer step, `best.pt`/`last.pt`, resume state, config and fold snapshots, environment capture, and metric export. Only after this succeeds should teammates run independent model/fold jobs using the same repository commit, dataset version, manifests, config, and seed.
+Only after the smoke gate succeeds should teammates run independent model/fold jobs using the same repository commit, dataset version, manifests, config, and seed.
+
+```bash
+# Required track-wise models
+python scripts/train_kaggle.py --config configs/models/resnet50.yaml --model resnet50 --fold 1
+python scripts/train_kaggle.py --config configs/models/resnet_lstm.yaml --model resnet_lstm --fold 1
+python scripts/train_kaggle.py --config configs/models/videomae.yaml --model videomae --fold 1
+
+# Central scene-vs-person ablation
+python scripts/train_kaggle.py \
+  --config configs/models/videomae_fullframe.yaml \
+  --model videomae_fullframe \
+  --fold 1
+```
+
+ResNet50-LSTM trains ImageNet ResNet layer4 plus its two-layer unidirectional LSTM/head. VideoMAE trains its classifier and final four transformer blocks with AMP, warmup, clipping, and gradient accumulation. If a temporal model encounters CUDA OOM at physical batch size greater than one, the run retries from its last completed epoch at physical batch one, increases accumulation to preserve effective batch size, and records the change in `runtime_adjustments.json`. It never changes batch behavior silently.
 
 The downloaded unit is the complete self-describing run directory—not just weights and headline metrics. It includes checkpoints, metrics, config snapshot, fold manifest, environment/package record, seed, hardware information, git commit, and logs. Annotated MP4 and evidence rendering are restricted to inference, selected error-analysis samples, and the staged-real run.
+
+Every completed fold also exports timestamped outer-test predictions, raw-threshold and temporally aggregated event metrics, temporal-IoU matching, timing error, false positives/minute, applicable multi-track attribution, hard-negative subtype counts, events CSV/JSON, and clearly scoped classifier-only throughput/latency. Ignored windows never enter these metrics.
+
+## Cross-validation aggregation and frozen final policy
+
+Merge complete run directories locally, then execute:
+
+```bash
+python scripts/evaluate_cross_validation.py --output-root outputs
+```
+
+Aggregation refuses to run until all expected model × fold directories contain checkpoints, manifests, environments, window metrics, event metrics, and hard-negative results. It writes mean ± sample-standard-deviation rows to `cross_validation_summary.csv`. It also writes `final_model_policy.json`, selecting among the three track-wise candidates by mean event F1 and then lower false positives/minute, and freezes the winner's median CV best epoch and median validation threshold. Whole-frame VideoMAE remains an ablation and is not eligible to become the final person-centric model.
 
 ## Final model and staged-real guard
 
 After complete CV aggregation, final training uses all synthetic sources with no final validation set. Its epoch count is the median CV best epoch and its threshold is the median fold validation threshold, both frozen and recorded before training.
 
+```bash
+python scripts/train_final_model.py \
+  --policy outputs/cross_validation/final_model_policy.json
+```
+
+The command verifies that the current complete configuration bundle has the exact hash selected during CV. It writes `final.pt`, `last.pt`, `training_manifest.json`, the frozen policy, environment/package snapshots, training-only losses, and portable relative paths in `final_model_provenance.json`. There is deliberately no `best.pt`, validation loader, threshold search, or final synthetic test metric.
+
+Ordinary inference defaults to CPU and emits an annotated MP4, `events.csv`, `events.json`, per-event evidence clips, intermediate tracking/window artifacts, and a summary:
+
+```bash
+python scripts/run_inference.py \
+  --input path/to/video.mp4 \
+  --final-model-provenance outputs/final_model/resnet50/final_model_provenance.json \
+  --output-dir outputs/inference/example
+```
+
 The staged-real command will refuse to proceed without both complete final-model provenance and explicit acknowledgement:
 
 ```bash
 python scripts/test_real_staged.py \
-  --final-model-provenance outputs/final_model/provenance.json \
+  --final-model-provenance outputs/final_model/resnet50/final_model_provenance.json \
   --i-understand-this-is-one-time
 ```
 
-The current guard intentionally stops before opening real clips because staged-real inference is not implemented yet.
+Before opening any real clip, the command validates all staged-real paths and hashes, prints the frozen model/epoch/threshold provenance, and creates the fixed repository receipt `outputs/staged_real_execution_receipt.json` with status `started`. Changing the result directory therefore cannot bypass the guard. Any existing receipt—including one left by an interrupted run—causes refusal, preventing an accidental second evaluation. A successful run writes per-clip descriptive results to `staged_real_stress_test.csv`; it does not report or tune on an aggregate staged-real accuracy.
 
 ## Ethics and privacy
 

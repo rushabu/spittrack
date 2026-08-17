@@ -43,9 +43,13 @@ class WindowRecord:
     label: str
     overlap_fraction_of_action: float
     negative_subtype: str | None
+    bbox_xyxy: tuple[float, float, float, float]
+    view: str = "track_crop"
 
     @property
     def window_id(self) -> str:
+        if self.view == "full_frame":
+            return f"{self.source_id}_scene_start{self.start_frame:08d}"
         return f"{self.source_id}_track{self.track_id:04d}_start{self.start_frame:08d}"
 
 
@@ -199,6 +203,8 @@ def build_window_index(
             run_ids = {by_index[index].tracking_run_id for index in required}
             if len(run_ids) != 1:
                 raise WindowError(f"Window {key} at frame {start_frame} mixes tracking_run_id values")
+            selected_indices = uniform_sample_indices(start_frame, end_frame, sampled_frames)
+            center_index = selected_indices[len(selected_indices) // 2]
             records.append(
                 WindowRecord(
                     source_id=key[0],
@@ -208,10 +214,11 @@ def build_window_index(
                     end_frame_exclusive=end_frame,
                     start_s=start_s,
                     end_s=end_s,
-                    sampled_frame_indices=uniform_sample_indices(start_frame, end_frame, sampled_frames),
+                    sampled_frame_indices=selected_indices,
                     label=label.label,
                     overlap_fraction_of_action=label.overlap_fraction_of_action,
                     negative_subtype=negative_subtype,
+                    bbox_xyxy=by_index[center_index].bbox_xyxy,
                 )
             )
     summary = WindowBuildSummary(
@@ -224,11 +231,83 @@ def build_window_index(
     return records, summary
 
 
+def build_fullframe_window_index(
+    sources: Iterable[SourceRecord],
+    annotations: Iterable[ActionInterval],
+    *,
+    fps: int = 25,
+    window_seconds: float = 2.0,
+    stride_seconds: float = 0.5,
+    sampled_frames: int = 16,
+    positive_fraction: float = 0.5,
+) -> tuple[list[WindowRecord], WindowBuildSummary]:
+    """Build one scene-level window sequence per source for the whole-frame VideoMAE ablation."""
+    window_frames_decimal = Decimal(str(window_seconds)) * Decimal(fps)
+    if window_frames_decimal != window_frames_decimal.to_integral_value():
+        raise WindowError("window_seconds * fps must be an integer number of frames")
+    window_frames = int(window_frames_decimal)
+    stride_frames = Decimal(str(stride_seconds)) * Decimal(fps)
+    if stride_frames < 1:
+        raise WindowError("stride must advance by at least one frame")
+    intervals_by_source: dict[str, list[ActionInterval]] = defaultdict(list)
+    for interval in annotations:
+        if interval.action_label == "spitting":
+            intervals_by_source[interval.source_id].append(interval)
+    records: list[WindowRecord] = []
+    ignored = 0
+    source_list = list(sources)
+    for source in sorted(source_list, key=lambda item: item.source_id):
+        total_frames = round(source.duration_s * fps)
+        last_start = total_frames - window_frames
+        if last_start < 0:
+            LOGGER.info("Rejecting full-frame source %s: shorter than %.2fs", source.source_id, window_seconds)
+            continue
+        for start_frame in _stride_start_frames(0, last_start, stride_frames):
+            end_frame = start_frame + window_frames
+            start_s = start_frame / fps
+            end_s = end_frame / fps
+            label = label_window(
+                start_s,
+                end_s,
+                intervals_by_source[source.source_id],
+                positive_fraction=positive_fraction,
+            )
+            if label.label == "ignore":
+                ignored += 1
+            records.append(
+                WindowRecord(
+                    source_id=source.source_id,
+                    tracking_run_id="full-frame-scene",
+                    track_id=-1,
+                    start_frame=start_frame,
+                    end_frame_exclusive=end_frame,
+                    start_s=start_s,
+                    end_s=end_s,
+                    sampled_frame_indices=uniform_sample_indices(
+                        start_frame, end_frame, sampled_frames
+                    ),
+                    label=label.label,
+                    overlap_fraction_of_action=label.overlap_fraction_of_action,
+                    negative_subtype=source.negative_subtype,
+                    bbox_xyxy=(0.0, 0.0, float(source.width), float(source.height)),
+                    view="full_frame",
+                )
+            )
+    return records, WindowBuildSummary(
+        source_count=len({record.source_id for record in records}),
+        track_count=0,
+        emitted_windows=len(records),
+        ignored_windows=ignored,
+        rejected_incomplete_windows=0,
+    )
+
+
 def write_window_index(records: Iterable[WindowRecord], output_path: Path) -> None:
     """Write a fold-independent window index; fold roles are joined from immutable manifests at runtime."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "window_id",
+        "view",
         "source_id",
         "tracking_run_id",
         "track_id",
@@ -240,6 +319,10 @@ def write_window_index(records: Iterable[WindowRecord], output_path: Path) -> No
         "label",
         "overlap_fraction_of_action",
         "negative_subtype",
+        "bbox_x1",
+        "bbox_y1",
+        "bbox_x2",
+        "bbox_y2",
         "clip_path",
     ]
     with output_path.open("w", encoding="utf-8", newline="") as stream:
@@ -249,6 +332,7 @@ def write_window_index(records: Iterable[WindowRecord], output_path: Path) -> No
             writer.writerow(
                 {
                     "window_id": record.window_id,
+                    "view": record.view,
                     "source_id": record.source_id,
                     "tracking_run_id": record.tracking_run_id,
                     "track_id": record.track_id,
@@ -260,7 +344,15 @@ def write_window_index(records: Iterable[WindowRecord], output_path: Path) -> No
                     "label": record.label,
                     "overlap_fraction_of_action": f"{record.overlap_fraction_of_action:.6f}",
                     "negative_subtype": record.negative_subtype or "",
-                    "clip_path": f"clips/{record.source_id}/{record.window_id}.npy",
+                    "bbox_x1": f"{record.bbox_xyxy[0]:.4f}",
+                    "bbox_y1": f"{record.bbox_xyxy[1]:.4f}",
+                    "bbox_x2": f"{record.bbox_xyxy[2]:.4f}",
+                    "bbox_y2": f"{record.bbox_xyxy[3]:.4f}",
+                    "clip_path": (
+                        f"fullframe_clips/{record.source_id}/{record.window_id}.npy"
+                        if record.view == "full_frame"
+                        else f"clips/{record.source_id}/{record.window_id}.npy"
+                    ),
                 }
             )
 

@@ -23,3 +23,10 @@ labels:
   positive_overlap_fraction_of_action: 0.50
   partial_overlap_label: ignore
 
+augmentation:
+  crop_scale: [0.85, 1.0]
+  crop_ratio: [1.0, 1.0]
+  horizontal_flip_probability: 0.5
+  brightness_factor_range: [0.9, 1.1]
+  contrast_factor_range: [0.9, 1.1]
+  max_rotation_degrees: 5.0

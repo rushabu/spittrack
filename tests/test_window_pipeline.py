@@ -4,7 +4,11 @@ from spittrack.data.contracts import ActionInterval
 from spittrack.data.tracking import TrackFrame
 from spittrack.common.errors import WindowError
 from spittrack.data.folds import FoldManifest
-from spittrack.data.windows import build_window_index, select_partition_windows
+from spittrack.data.windows import (
+    build_fullframe_window_index,
+    build_window_index,
+    select_partition_windows,
+)
 
 
 def interval() -> ActionInterval:
@@ -77,3 +81,12 @@ def test_partition_selection_excludes_ignore_and_rejects_unassigned_sources(sour
 
     with pytest.raises(WindowError, match="not assigned"):
         select_partition_windows(windows, invalid_manifest, "train")
+
+
+def test_fullframe_windows_are_scene_level_not_duplicated_per_track(source_factory) -> None:
+    source = source_factory("S01", True, duration_s=3.0)
+    windows, summary = build_fullframe_window_index([source], [interval()])
+    assert [item.start_frame for item in windows] == [0, 13, 25]
+    assert all(item.view == "full_frame" and item.track_id == -1 for item in windows)
+    assert len({item.window_id for item in windows}) == 3
+    assert summary.track_count == 0

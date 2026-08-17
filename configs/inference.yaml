@@ -5,6 +5,8 @@ event_aggregation:
   min_consecutive_positive_windows: 2
   merge_gap_seconds: 1.0
   event_confidence: mean_top_3
+  expected_window_stride_seconds: 0.5
+evaluation:
+  temporal_iou_threshold: 0.5
 staged_real:
   require_one_time_acknowledgement: true
-

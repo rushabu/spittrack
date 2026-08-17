@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from spittrack.common.errors import ContractError
-from spittrack.evaluation.cross_validation import aggregate_complete_matrix
+from spittrack.data.contracts import NEGATIVE_SUBTYPES
+from spittrack.evaluation.cross_validation import (
+    aggregate_complete_matrix,
+    select_final_model_policy,
+)
 
 
 def create_run(root: Path, model: str, fold: int, *, config_hash: str = "same") -> None:
@@ -14,12 +18,27 @@ def create_run(root: Path, model: str, fold: int, *, config_hash: str = "same") 
     run.mkdir(parents=True)
     metrics = {
         "model": model,
+        "best_epoch": 4 + fold,
+        "validation_threshold": 0.5 + fold / 100,
         "outer_test": {
             "precision": 0.5 + fold / 100,
             "recall": 0.6,
             "f1": 0.55,
             "balanced_accuracy": 0.65,
             "pr_auc": 0.7,
+        },
+        "event_outer_test": {
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+            "false_positives_per_minute": 0.2,
+            "mean_start_error_s": 0.1,
+            "mean_end_error_s": 0.2,
+            "track_attribution_accuracy": 1.0,
+        },
+        "event_outer_test_raw_threshold": {"f1": 0.4},
+        "hard_negative_false_positive_counts": {
+            subtype: 0 for subtype in NEGATIVE_SUBTYPES
         },
     }
     (run / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
@@ -29,6 +48,9 @@ def create_run(root: Path, model: str, fold: int, *, config_hash: str = "same") 
     (run / "fold_manifest.json").write_text("{}", encoding="utf-8")
     (run / "best.pt").write_bytes(b"checkpoint")
     (run / "last.pt").write_bytes(b"checkpoint")
+    (run / "outer_test_predictions.csv").write_text("window_id\n", encoding="utf-8")
+    (run / "events.csv").write_text("source_id\n", encoding="utf-8")
+    (run / "events.json").write_text("[]", encoding="utf-8")
 
 
 def test_partial_matrix_is_refused_with_exact_missing_run(tmp_path: Path) -> None:
@@ -53,3 +75,20 @@ def test_config_hash_mismatch_across_folds_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ContractError, match="Config hash differs"):
         aggregate_complete_matrix(tmp_path, models=["resnet50"], folds=[1, 2])
 
+
+def test_final_policy_uses_event_f1_then_fp_and_median_cv_values(tmp_path: Path) -> None:
+    create_run(tmp_path, "resnet50", 1)
+    create_run(tmp_path, "resnet50", 2)
+    create_run(tmp_path, "videomae", 1)
+    create_run(tmp_path, "videomae", 2)
+    for fold in (1, 2):
+        path = tmp_path / "runs" / "videomae" / f"fold_{fold:02d}" / "metrics.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["event_outer_test"]["f1"] = 0.8
+        path.write_text(json.dumps(payload), encoding="utf-8")
+    policy = select_final_model_policy(
+        tmp_path, candidate_models=["resnet50", "videomae"], folds=[1, 2]
+    )
+    assert policy["selected_model"] == "videomae"
+    assert policy["median_cv_best_epoch"] == 5
+    assert policy["final_training_uses_validation_set"] is False

@@ -14,17 +14,23 @@ class VideoMAEClassifier(nn.Module):
         *,
         checkpoint: str = "MCG-NJU/videomae-base",
         final_trainable_blocks: int = 4,
+        model_config: dict | None = None,
     ) -> None:
         super().__init__()
         try:
-            from transformers import VideoMAEForVideoClassification
+            from transformers import VideoMAEConfig, VideoMAEForVideoClassification
         except ImportError as exc:  # pragma: no cover - dependency checked on Kaggle
             raise RuntimeError("transformers with VideoMAE support is required") from exc
-        self.model = VideoMAEForVideoClassification.from_pretrained(
-            checkpoint,
-            num_labels=2,
-            ignore_mismatched_sizes=True,
-        )
+        if model_config is None:
+            self.model = VideoMAEForVideoClassification.from_pretrained(
+                checkpoint,
+                num_labels=2,
+                ignore_mismatched_sizes=True,
+            )
+        else:
+            configuration = VideoMAEConfig.from_dict(model_config)
+            configuration.num_labels = 2
+            self.model = VideoMAEForVideoClassification(configuration)
         self.set_partial_trainability(final_trainable_blocks)
 
     def forward(self, clips: torch.Tensor) -> torch.Tensor:
@@ -69,4 +75,3 @@ class VideoMAEClassifier(nn.Module):
             {"params": backbone, "lr": backbone_lr},
             {"params": head, "lr": head_lr},
         ]
-

@@ -30,6 +30,29 @@ def seed_everything(seed: int = 42) -> None:
     torch.backends.cudnn.benchmark = False
 
 
+def capture_rng_state() -> dict[str, Any]:
+    """Capture RNG streams needed for deterministic epoch-boundary resume."""
+    import torch
+
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    }
+
+
+def restore_rng_state(state: dict[str, Any]) -> None:
+    """Restore a checkpointed RNG bundle before the next DataLoader iterator is created."""
+    import torch
+
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch_cpu"])
+    if torch.cuda.is_available() and state.get("torch_cuda") is not None:
+        torch.cuda.set_rng_state_all(state["torch_cuda"])
+
+
 def _command_output(command: list[str]) -> str | None:
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=30)
@@ -59,7 +82,8 @@ def initialize_run_directory(
     run_dir: Path,
     *,
     config: dict[str, Any],
-    fold_manifest_path: Path,
+    fold_manifest_path: Path | None = None,
+    training_manifest: dict[str, Any] | None = None,
     seed: int,
 ) -> dict[str, Any]:
     """Create a self-describing run directory and return its provenance record."""
@@ -68,8 +92,15 @@ def initialize_run_directory(
     run_dir.mkdir(parents=True, exist_ok=True)
     config_payload = json.dumps(config, indent=2, sort_keys=True) + "\n"
     (run_dir / "config_snapshot.json").write_text(config_payload, encoding="utf-8")
-    manifest_text = fold_manifest_path.read_text(encoding="utf-8")
-    (run_dir / "fold_manifest.json").write_text(manifest_text, encoding="utf-8")
+    if (fold_manifest_path is None) == (training_manifest is None):
+        raise ValueError("Provide exactly one of fold_manifest_path or training_manifest")
+    if fold_manifest_path is not None:
+        manifest_text = fold_manifest_path.read_text(encoding="utf-8")
+        (run_dir / "fold_manifest.json").write_text(manifest_text, encoding="utf-8")
+    else:
+        (run_dir / "training_manifest.json").write_text(
+            json.dumps(training_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     environment = capture_run_environment()
     provenance = {
         **environment,
@@ -82,4 +113,3 @@ def initialize_run_directory(
     freeze = _command_output([sys.executable, "-m", "pip", "freeze"])
     (run_dir / "pip_freeze.txt").write_text((freeze or "unavailable") + "\n", encoding="utf-8")
     return provenance
-

@@ -93,3 +93,62 @@ def materialize_window_clips(
             written.append(output)
         LOGGER.info("source=%s materialized_windows=%d", source_id, len(source_records))
     return written
+
+
+def materialize_fullframe_clips(
+    records: Iterable[WindowRecord],
+    *,
+    normalized_root: Path,
+    clips_root: Path,
+    image_size: int = 224,
+) -> list[Path]:
+    """Materialize scene windows using the exact same temporal indices as track windows."""
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("opencv-python-headless is required to materialize full-frame clips") from exc
+    groups: dict[str, list[WindowRecord]] = defaultdict(list)
+    for record in records:
+        if record.view != "full_frame":
+            raise WindowError(f"Expected full_frame record, got {record.view!r}")
+        groups[record.source_id].append(record)
+    written: list[Path] = []
+    for source_id in sorted(groups):
+        source_records = groups[source_id]
+        video_path = normalized_root / f"{source_id}.mp4"
+        if not video_path.is_file():
+            raise ContractError(f"Normalized video does not exist: {video_path}")
+        references: dict[int, list[tuple[int, int]]] = defaultdict(list)
+        arrays = [
+            np.empty((16, image_size, image_size, 3), dtype=np.uint8)
+            for _record in source_records
+        ]
+        for record_index, record in enumerate(source_records):
+            for position, frame_index in enumerate(record.sampled_frame_indices):
+                references[frame_index].append((record_index, position))
+        capture = cv2.VideoCapture(str(video_path))
+        if not capture.isOpened():
+            raise ContractError(f"Could not open normalized video: {video_path}")
+        try:
+            for frame_index in range(max(references) + 1):
+                ok, frame_bgr = capture.read()
+                if not ok:
+                    raise ContractError(
+                        f"Normalized video {source_id} ended before required frame {frame_index}"
+                    )
+                for record_index, position in references.get(frame_index, []):
+                    resized = cv2.resize(
+                        frame_bgr, (image_size, image_size), interpolation=cv2.INTER_AREA
+                    )
+                    arrays[record_index][position] = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        finally:
+            capture.release()
+        for record, array in zip(source_records, arrays):
+            output = clips_root / source_id / f"{record.window_id}.npy"
+            if output.exists():
+                raise ContractError(f"Refusing to overwrite materialized clip: {output}")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            np.save(output, array, allow_pickle=False)
+            written.append(output)
+        LOGGER.info("source=%s materialized_fullframe_windows=%d", source_id, len(source_records))
+    return written

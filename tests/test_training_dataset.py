@@ -18,7 +18,11 @@ def test_dataset_joins_manifest_and_excludes_ignore(tmp_path: Path) -> None:
     index = tmp_path / "windows.csv"
     with index.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(
-            stream, fieldnames=["window_id", "source_id", "track_id", "label", "clip_path"]
+            stream,
+            fieldnames=[
+                "window_id", "source_id", "track_id", "start_s", "end_s", "label",
+                "negative_subtype", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2", "clip_path",
+            ],
         )
         writer.writeheader()
         writer.writerow(
@@ -26,7 +30,14 @@ def test_dataset_joins_manifest_and_excludes_ignore(tmp_path: Path) -> None:
                 "window_id": "w1",
                 "source_id": "S01",
                 "track_id": 1,
+                "start_s": 0,
+                "end_s": 2,
                 "label": "spitting",
+                "negative_subtype": "",
+                "bbox_x1": 0,
+                "bbox_y1": 0,
+                "bbox_x2": 10,
+                "bbox_y2": 20,
                 "clip_path": "clips/S01/w1.npy",
             }
         )
@@ -35,7 +46,14 @@ def test_dataset_joins_manifest_and_excludes_ignore(tmp_path: Path) -> None:
                 "window_id": "w2",
                 "source_id": "S01",
                 "track_id": 1,
+                "start_s": 0.5,
+                "end_s": 2.5,
                 "label": "ignore",
+                "negative_subtype": "",
+                "bbox_x1": 0,
+                "bbox_y1": 0,
+                "bbox_x2": 10,
+                "bbox_y2": 20,
                 "clip_path": "clips/S01/w2.npy",
             }
         )
@@ -61,8 +79,8 @@ def test_source_class_sampler_requires_both_classes(tmp_path: Path) -> None:
     np.save(clips / "w1.npy", np.zeros((16, 224, 224, 3), dtype=np.uint8), allow_pickle=False)
     index = tmp_path / "windows.csv"
     index.write_text(
-        "window_id,source_id,track_id,label,clip_path\n"
-        "w1,S01,1,spitting,clips/S01/w1.npy\n",
+        "window_id,source_id,track_id,start_s,end_s,label,negative_subtype,bbox_x1,bbox_y1,bbox_x2,bbox_y2,clip_path\n"
+        "w1,S01,1,0,2,spitting,,0,0,10,20,clips/S01/w1.npy\n",
         encoding="utf-8",
     )
     manifest = FoldManifest(1, ("S01",), ("S02",), ("S03",), (), 42)
@@ -71,4 +89,3 @@ def test_source_class_sampler_requires_both_classes(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="both classes"):
         source_class_balanced_sampler(dataset)
-

@@ -34,8 +34,12 @@ class SpittingEvent:
     contributing_window_count: int
 
 
-def median_smooth_three(windows: Iterable[WindowScore]) -> list[SmoothedWindowScore]:
+def median_smooth_three(
+    windows: Iterable[WindowScore], *, maximum_adjacent_start_gap_s: float = 0.5
+) -> list[SmoothedWindowScore]:
     """Centered three-window median with endpoint replication, independently per track."""
+    if maximum_adjacent_start_gap_s <= 0:
+        raise ValueError("maximum_adjacent_start_gap_s must be positive")
     ordered = sorted(windows, key=lambda item: (item.source_id, item.track_id, item.start_s))
     groups: dict[tuple[str, int], list[WindowScore]] = {}
     for window in ordered:
@@ -46,12 +50,22 @@ def median_smooth_three(windows: Iterable[WindowScore]) -> list[SmoothedWindowSc
         groups.setdefault((window.source_id, window.track_id), []).append(window)
     result: list[SmoothedWindowScore] = []
     for key in sorted(groups):
-        group = groups[key]
-        for index, window in enumerate(group):
-            left = group[max(0, index - 1)].probability
-            center = window.probability
-            right = group[min(len(group) - 1, index + 1)].probability
-            result.append(SmoothedWindowScore(window, float(median((left, center, right)))))
+        segments: list[list[WindowScore]] = []
+        for window in groups[key]:
+            if (
+                not segments
+                or window.start_s - segments[-1][-1].start_s
+                > maximum_adjacent_start_gap_s + 1e-6
+            ):
+                segments.append([window])
+            else:
+                segments[-1].append(window)
+        for segment in segments:
+            for index, window in enumerate(segment):
+                left = segment[max(0, index - 1)].probability
+                center = window.probability
+                right = segment[min(len(segment) - 1, index + 1)].probability
+                result.append(SmoothedWindowScore(window, float(median((left, center, right)))))
     return result
 
 
@@ -68,7 +82,9 @@ def aggregate_events(
         raise ValueError("threshold must be in [0,1]")
     if min_consecutive < 1 or merge_gap_s < 0 or expected_stride_s <= 0:
         raise ValueError("Invalid event aggregation parameters")
-    smoothed = median_smooth_three(windows)
+    smoothed = median_smooth_three(
+        windows, maximum_adjacent_start_gap_s=expected_stride_s
+    )
     groups: dict[tuple[str, int], list[SmoothedWindowScore]] = {}
     for item in smoothed:
         groups.setdefault((item.window.source_id, item.window.track_id), []).append(item)
@@ -120,4 +136,3 @@ def aggregate_events(
                 )
             )
     return events
-

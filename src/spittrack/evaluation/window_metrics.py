@@ -6,6 +6,8 @@ from typing import Iterable
 
 import numpy as np
 
+from spittrack.data.contracts import NEGATIVE_SUBTYPES
+
 
 def select_f1_threshold(labels: Iterable[int], probabilities: Iterable[float]) -> tuple[float, float]:
     """Choose the validation threshold with maximum F1; ties prefer the higher threshold."""
@@ -61,3 +63,21 @@ def binary_window_metrics(
         "confusion_matrix": confusion_matrix(y_true, predicted, labels=[0, 1]).tolist(),
     }
 
+
+def hard_negative_false_positive_counts(
+    labels: Iterable[int],
+    probabilities: Iterable[float],
+    negative_subtypes: Iterable[str],
+    *,
+    threshold: float,
+) -> dict[str, int]:
+    """Count thresholded false-positive windows by the declared hard-negative subtype."""
+    counts = {subtype: 0 for subtype in sorted(NEGATIVE_SUBTYPES)}
+    triples = list(zip(labels, probabilities, negative_subtypes))
+    for label, probability, subtype in triples:
+        if int(label) == 0 and float(probability) >= threshold:
+            key = subtype or "normal_activity"
+            if key not in counts:
+                raise ValueError(f"Unknown hard-negative subtype in predictions: {key!r}")
+            counts[key] += 1
+    return counts
