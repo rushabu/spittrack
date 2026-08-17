@@ -97,26 +97,32 @@ def evaluate_run_events(
         attribution_source_ids=attribution_ids,
         minimum_iou=temporal_iou_threshold,
     )
-    events_payload = [
-        {
+    events_payload = []
+    for index, event in enumerate(events, start=1):
+        source = source_map[event.source_id]
+        events_payload.append({
             "source_id": event.source_id,
+            "video_file": source.file_name,
+            "event_id": f"event_{index:04d}",
             "track_id": event.track_id,
             "event_type": "spitting",
             "start_s": event.start_s,
             "end_s": event.end_s,
+            "duration_s": event.end_s - event.start_s,
             "confidence": event.confidence,
             "peak_bbox_xyxy": list(event.peak_bbox_xyxy),
             "model_name": model_name,
-        }
-        for event in events
-    ]
+            "checkpoint": "best.pt",
+            "evidence_clip_path": "",
+        })
     (run_dir / "events.json").write_text(
         json.dumps(events_payload, indent=2) + "\n", encoding="utf-8"
     )
     with (run_dir / "events.csv").open("w", encoding="utf-8", newline="") as stream:
         fieldnames = [
-            "source_id", "track_id", "event_type", "start_s", "end_s", "confidence",
-            "peak_x1", "peak_y1", "peak_x2", "peak_y2", "model_name",
+            "source_id", "video_file", "event_id", "track_id", "event_type",
+            "start_s", "end_s", "duration_s", "confidence", "peak_x1", "peak_y1",
+            "peak_x2", "peak_y2", "model_name", "checkpoint", "evidence_clip_path",
         ]
         writer = csv.DictWriter(stream, fieldnames=fieldnames)
         writer.writeheader()
@@ -124,7 +130,7 @@ def evaluate_run_events(
             bbox = payload["peak_bbox_xyxy"]
             writer.writerow(
                 {
-                    **{key: payload[key] for key in fieldnames[:6]},
+                    **{key: payload[key] for key in fieldnames if key in payload},
                     "peak_x1": bbox[0], "peak_y1": bbox[1],
                     "peak_x2": bbox[2], "peak_y2": bbox[3],
                     "model_name": model_name,

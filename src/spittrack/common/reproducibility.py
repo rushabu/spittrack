@@ -78,6 +78,11 @@ def capture_run_environment() -> dict[str, Any]:
     }
 
 
+def capture_package_freeze() -> str:
+    """Return the resolved Python environment or a descriptive sentinel."""
+    return _command_output([sys.executable, "-m", "pip", "freeze"]) or "unavailable"
+
+
 def initialize_run_directory(
     run_dir: Path,
     *,
@@ -110,6 +115,6 @@ def initialize_run_directory(
     (run_dir / "environment.json").write_text(
         json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    freeze = _command_output([sys.executable, "-m", "pip", "freeze"])
-    (run_dir / "pip_freeze.txt").write_text((freeze or "unavailable") + "\n", encoding="utf-8")
+    freeze = capture_package_freeze()
+    (run_dir / "pip_freeze.txt").write_text(freeze + "\n", encoding="utf-8")
     return provenance

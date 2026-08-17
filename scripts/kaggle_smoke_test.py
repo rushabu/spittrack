@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from spittrack.common.config import load_yaml
 from spittrack.common.reproducibility import initialize_run_directory, seed_everything
+from spittrack.common.logging_utils import attach_run_log
 from spittrack.data.folds import load_fold_manifest
 from spittrack.models.resnet50 import ResNet50Classifier
 from spittrack.training.dataset import WindowClipDataset, source_class_balanced_sampler
@@ -80,14 +81,15 @@ def main() -> int:
             Path("/kaggle/working/outputs") if Path("/kaggle").exists() else Path("outputs")
         )
         run_dir = output_root / "smoke" / "resnet50" / f"fold_{args.fold:02d}"
-        model = ResNet50Classifier(pretrained=True, dropout=float(config["head_dropout"]))
-        model.freeze_backbone()
         provenance = initialize_run_directory(
             run_dir,
             config=smoke_config,
             fold_manifest_path=manifest_path,
             seed=seed,
         )
+        attach_run_log(run_dir / "run.log")
+        model = ResNet50Classifier(pretrained=True, dropout=float(config["head_dropout"]))
+        model.freeze_backbone()
         device = torch.device("cuda")
         model.to(device)
         optimizer = torch.optim.AdamW(
@@ -147,6 +149,16 @@ def main() -> int:
         }
         if not report["loss_is_finite"]:
             raise RuntimeError("Smoke loss is non-finite")
+        freeze_text = (run_dir / "pip_freeze.txt").read_text(encoding="utf-8")
+        if freeze_text.strip() == "unavailable":
+            raise RuntimeError("pip freeze was unavailable; environment lock cannot be certified")
+        lock_path = output_root / "requirements-lock.txt"
+        if lock_path.exists() and lock_path.read_text(encoding="utf-8") != freeze_text:
+            raise RuntimeError(
+                f"A different smoke-certified environment lock already exists: {lock_path}"
+            )
+        lock_path.write_text(freeze_text, encoding="utf-8")
+        report["environment_lock_path"] = str(lock_path)
         (run_dir / "smoke_report.json").write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )

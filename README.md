@@ -40,6 +40,8 @@ pytest
 
 GPU/model dependencies in `requirements.txt` use compatible minimum versions until the mandatory Kaggle smoke test establishes a working environment. The actual resolved Kaggle environment will then be frozen in `requirements-lock.txt`; dependency versions will not be guessed in advance.
 
+For a local CUDA installation, select the PyTorch wheel matching the installed driver from the official PyTorch installer before installing the remaining requirements. The target paper environment is Python 3.11; do not assume a CUDA 12.6 wheel is compatible until the Kaggle smoke gate confirms the actual image.
+
 ## Data placement
 
 ```text
@@ -78,6 +80,8 @@ x1, y1, x2, y2, det_conf
 ```
 
 `tracking_run_id` binds annotations and windows to the exact detector/tracker configuration. A source cannot mix run IDs. Missing track frames cause affected windows to be rejected; the window builder never interpolates boxes or hallucinates frames.
+
+Annotation happens only after the detector/tracker configuration is frozen. Run tracking, review the trajectories, then enter action intervals with the emitted `tracking_run_id` and `track_id` in `action_intervals.csv`. If detector weights or tracker configuration changes, regenerate tracking artifacts and annotations rather than reusing stale IDs.
 
 ## Fold construction
 
@@ -128,11 +132,11 @@ The first Kaggle GPU session must run the isolated smoke gate before any scienti
 python scripts/kaggle_smoke_test.py --fold 1
 ```
 
-It verifies the installed Torch, torchvision, Ultralytics, Transformers and OpenCV distributions; CUDA/AMP; a real materialized training batch; one ResNet50 optimizer step; and checkpoint reload. It never opens validation or outer-test data and writes `scientific_result=false` in `smoke_report.json`.
+It verifies the installed Torch, torchvision, Ultralytics, Transformers and OpenCV distributions; CUDA/AMP; a real materialized training batch; one ResNet50 optimizer step; and checkpoint reload. It never opens validation or outer-test data and writes `scientific_result=false` in `smoke_report.json`. On success it copies the captured `pip freeze` to `outputs/requirements-lock.txt`; that smoke-certified file should be downloaded and committed as the experiment lock rather than creating a lock from an unrelated local machine.
 
-## Kaggle execution policy
+## Running the experiment matrix across multiple Kaggle accounts
 
-Only after the smoke gate succeeds should teammates run independent model/fold jobs using the same repository commit, dataset version, manifests, config, and seed.
+Create one versioned Kaggle Dataset containing the validated videos, metadata, annotations, tracking manifests and materialized windows, and make the repository available by clone or a second Kaggle Dataset. Only after the smoke gate succeeds should teammates run independent model/fold jobs using the exact same repository commit, Kaggle Dataset version, manifests, config and seed. Assign each account explicit `--model` and `--fold` combinations, download the entire self-describing run directories, merge them under one local `outputs/runs/` tree, and aggregate only when the matrix is complete.
 
 ```bash
 # Required track-wise models
@@ -161,7 +165,7 @@ Merge complete run directories locally, then execute:
 python scripts/evaluate_cross_validation.py --output-root outputs
 ```
 
-Aggregation refuses to run until all expected model × fold directories contain checkpoints, manifests, environments, window metrics, event metrics, and hard-negative results. It writes mean ± sample-standard-deviation rows to `cross_validation_summary.csv`. It also writes `final_model_policy.json`, selecting among the three track-wise candidates by mean event F1 and then lower false positives/minute, and freezes the winner's median CV best epoch and median validation threshold. Whole-frame VideoMAE remains an ablation and is not eligible to become the final person-centric model.
+Aggregation refuses to run until all expected model × fold directories contain checkpoints, manifests, environments, logs, window predictions, event metrics, and hard-negative results. It writes mean ± sample-standard-deviation rows to `cross_validation_summary.csv` and generates real-data paper plots under `outputs/plots/`: per-model confusion matrices and PR curves, the event-F1 model comparison, raw-threshold versus temporal-aggregation ablation, and hard-negative breakdown. It also writes `final_model_policy.json`, selecting among the three track-wise candidates by mean event F1 and then lower false positives/minute, and freezes the winner's median CV best epoch and median validation threshold. Whole-frame VideoMAE remains an ablation and is not eligible to become the final person-centric model.
 
 ## Final model and staged-real guard
 
@@ -174,7 +178,7 @@ python scripts/train_final_model.py \
 
 The command verifies that the current complete configuration bundle has the exact hash selected during CV. It writes `final.pt`, `last.pt`, `training_manifest.json`, the frozen policy, environment/package snapshots, training-only losses, and portable relative paths in `final_model_provenance.json`. There is deliberately no `best.pt`, validation loader, threshold search, or final synthetic test metric.
 
-Ordinary inference defaults to CPU and emits an annotated MP4, `events.csv`, `events.json`, per-event evidence clips, intermediate tracking/window artifacts, and a summary:
+Ordinary inference defaults to CPU and emits an annotated MP4, research-schema `events.csv`/`events.json` with checkpoint and evidence provenance, per-event evidence clips, intermediate tracking/window artifacts, config/model/environment/package snapshots, `run.log`, and an end-to-end performance summary labelled with its device and measurement scope:
 
 ```bash
 python scripts/run_inference.py \
@@ -196,3 +200,11 @@ Before opening any real clip, the command validates all staged-real paths and ha
 ## Ethics and privacy
 
 Track IDs are transient within-video trajectory identifiers only. The project performs no face recognition or cross-video civil-identity matching. Real clips remain an external staged stress test, are never used for tuning, and should remain access-controlled according to participant consent and filming authorization.
+
+## Troubleshooting
+
+- “Balanced K-fold construction is impossible” means the metadata does not contain equal positive/negative synthetic source counts with at least `K` per class. The tool reports the required minimum and will not weaken the protocol.
+- A tracking-run mismatch means annotations were produced with different detector/tracker settings. Regenerate manifests and annotations; do not edit the recorded hash.
+- A CUDA OOM during temporal training triggers the declared physical-batch-one fallback only when effective batch size can be preserved. Inspect `runtime_adjustments.json`.
+- An incomplete-matrix error lists the exact missing model/fold artifacts. Recover those complete run directories rather than aggregating a subset.
+- Staged-real refusal after a receipt exists is intentional. Do not delete the receipt merely to rerun the holdout; document any interrupted execution before deciding how it can be reported.

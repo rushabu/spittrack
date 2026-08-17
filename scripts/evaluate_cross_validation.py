@@ -13,10 +13,15 @@ if __package__ in {None, ""}:
 
 from spittrack.common.errors import ContractError
 from spittrack.common.hashing import file_sha256
+from spittrack.common.logging_utils import attach_run_log
 from spittrack.evaluation.cross_validation import (
     aggregate_complete_matrix,
     select_final_model_policy,
     write_cross_validation_summary,
+)
+from spittrack.evaluation.plots import (
+    plot_cross_validation_comparisons,
+    plot_outer_fold_diagnostics,
 )
 
 
@@ -41,6 +46,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    attach_run_log(args.output_root / "cross_validation" / "aggregation.log")
     try:
         aggregates = aggregate_complete_matrix(
             args.output_root,
@@ -59,11 +65,20 @@ def main() -> int:
         policy_path.write_text(
             json.dumps(policy, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    except ContractError as exc:
+        plots_dir = args.output_root / "plots"
+        plot_outer_fold_diagnostics(
+            args.output_root,
+            models=args.models,
+            folds=range(1, args.folds + 1),
+            plots_dir=plots_dir,
+        )
+        plot_cross_validation_comparisons(aggregates, plots_dir)
+    except (ContractError, RuntimeError, ValueError) as exc:
         logging.error("CV aggregation failed: %s", exc)
         return 2
     logging.info("Wrote complete-matrix CV summary: %s", destination)
     logging.info("Froze final-model policy: %s", policy_path)
+    logging.info("Wrote paper plots: %s", plots_dir)
     return 0
 
 

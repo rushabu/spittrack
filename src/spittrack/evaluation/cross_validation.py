@@ -141,6 +141,7 @@ def aggregate_complete_matrix(
                 "outer_test_predictions.csv",
                 "events.csv",
                 "events.json",
+                "run.log",
             )
             missing = [name for name in required if not (run_dir / name).is_file()]
             if missing:

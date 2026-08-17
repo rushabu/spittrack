@@ -16,6 +16,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from spittrack.common.config import load_yaml
+from spittrack.common.logging_utils import attach_run_log
 from spittrack.common.reproducibility import initialize_run_directory, seed_everything
 from spittrack.data.folds import load_fold_manifest
 from spittrack.data.contracts import load_action_annotations, load_source_metadata
@@ -129,8 +130,6 @@ def _train_resnet_fold(args: argparse.Namespace, config: dict, fold_number: int)
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable; Kaggle GPU must be enabled")
-    model = ResNet50Classifier(pretrained=True, dropout=float(config.get("head_dropout", 0.3)))
-    model.to(device)
     output_root = _resolve_output_root(args.output_root)
     run_dir = output_root / "runs" / args.model / f"fold_{fold_number:02d}"
     resume_path = run_dir / "last.pt" if args.resume else None
@@ -145,6 +144,9 @@ def _train_resnet_fold(args: argparse.Namespace, config: dict, fold_number: int)
             fold_manifest_path=manifest_path,
             seed=int(config.get("seed", 42)),
         )
+    attach_run_log(run_dir / "run.log")
+    model = ResNet50Classifier(pretrained=True, dropout=float(config.get("head_dropout", 0.3)))
+    model.to(device)
     manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     result = train_resnet50(
         model,
@@ -167,6 +169,13 @@ def _train_resnet_fold(args: argparse.Namespace, config: dict, fold_number: int)
         run_dir,
         model_name=args.model,
         threshold=float(result["validation_threshold"]),
+    )
+    logging.info(
+        "Completed model=%s fold=%d best_epoch=%s validation_threshold=%.6f",
+        args.model,
+        fold_number,
+        result["best_epoch"],
+        float(result["validation_threshold"]),
     )
 
 
@@ -378,7 +387,6 @@ def _train_temporal_fold(args: argparse.Namespace, config: dict, fold_number: in
     output_root = _resolve_output_root(args.output_root)
     run_dir = output_root / "runs" / args.model / f"fold_{fold_number:02d}"
     resume_path = run_dir / "last.pt" if args.resume else None
-    model, optimizer = _make_temporal_model_and_optimizer(args.model, config)
     if args.resume:
         if not resume_path.is_file():
             raise FileNotFoundError(f"--resume requested but last.pt is missing: {resume_path}")
@@ -395,6 +403,8 @@ def _train_temporal_fold(args: argparse.Namespace, config: dict, fold_number: in
             fold_manifest_path=manifest_path,
             seed=int(config.get("seed", 42)),
         )
+    attach_run_log(run_dir / "run.log")
+    model, optimizer = _make_temporal_model_and_optimizer(args.model, config)
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is unavailable; Kaggle GPU must be enabled")
@@ -461,6 +471,13 @@ def _train_temporal_fold(args: argparse.Namespace, config: dict, fold_number: in
         run_dir,
         model_name=args.model,
         threshold=float(result["validation_threshold"]),
+    )
+    logging.info(
+        "Completed model=%s fold=%d best_epoch=%s validation_threshold=%.6f",
+        args.model,
+        fold_number,
+        result["best_epoch"],
+        float(result["validation_threshold"]),
     )
 
 

@@ -51,7 +51,15 @@ def test_cpu_full_video_inference_with_mocked_detector_and_classifier(tmp_path: 
         return "mock-run"
 
     monkeypatch.setattr(pipeline, "extract_track_manifest", fake_extract)
-    monkeypatch.setattr(pipeline, "load_final_model", lambda path, device: (AlwaysPositive().to(device).eval(), 0.5, {"model_name": "mock"}))
+    monkeypatch.setattr(
+        pipeline,
+        "load_final_model",
+        lambda path, device: (
+            AlwaysPositive().to(device).eval(),
+            0.5,
+            {"model_name": "mock", "checkpoint_path": "mock.pt"},
+        ),
+    )
     provenance = tmp_path / "provenance.json"
     provenance.write_text("{}", encoding="utf-8")
     output = tmp_path / "result"
@@ -62,6 +70,19 @@ def test_cpu_full_video_inference_with_mocked_detector_and_classifier(tmp_path: 
     assert (output / "events.csv").is_file()
     assert (output / "events.json").is_file()
     assert list((output / "evidence").glob("*.mp4"))
+    with (output / "events.csv").open(encoding="utf-8", newline="") as stream:
+        event = next(csv.DictReader(stream))
+    assert event["video_file"] == "input.mp4"
+    assert event["source_id"] == "input"
+    assert event["event_type"] == "spitting"
+    assert event["evidence_clip_path"] == "evidence/event_0001.mp4"
+    assert result["end_to_end_performance"]["device"] == "cpu"
+    assert result["end_to_end_performance"]["effective_input_frames_per_second"] > 0
+    assert (output / "run.log").is_file()
+    assert (output / "config_snapshot.json").is_file()
+    assert (output / "environment.json").is_file()
+    assert (output / "pip_freeze.txt").is_file()
+    assert (output / "final_model_provenance.json").is_file()
 
 
 def test_final_model_bundle_uses_portable_relative_paths(tmp_path: Path, monkeypatch) -> None:

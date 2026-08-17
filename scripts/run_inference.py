@@ -18,6 +18,7 @@ from spittrack.inference.pipeline import run_video_inference
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--source-id", help="Stable event source ID; defaults to the input filename stem")
     parser.add_argument("--final-model-provenance", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cpu")
@@ -33,7 +34,7 @@ def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        result = run_video_inference(args.input, args.final_model_provenance, args.output_dir, device_name=args.device, data_config_path=args.data_config, detector_config_path=args.detector_config, tracker_config_path=args.tracker_config, inference_config_path=args.inference_config, batch_size=args.batch_size)
+        result = run_video_inference(args.input, args.final_model_provenance, args.output_dir, source_id=args.source_id, device_name=args.device, data_config_path=args.data_config, detector_config_path=args.detector_config, tracker_config_path=args.tracker_config, inference_config_path=args.inference_config, batch_size=args.batch_size)
         logging.info("Inference complete: %s", json.dumps(result, sort_keys=True))
     except (ContractError, FileNotFoundError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         logging.error("Inference failed: %s", exc)

@@ -14,6 +14,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from spittrack.common.errors import ContractError
+from spittrack.common.logging_utils import attach_run_log
 from spittrack.data.contracts import _sha256_file, load_action_annotations, load_source_metadata
 from spittrack.inference.pipeline import run_video_inference
 
@@ -65,6 +66,7 @@ def _iou(left_start: float, left_end: float, right_start: float, right_end: floa
 def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    attach_run_log(args.output_dir / "staged_real.log")
     if not args.i_understand_this_is_one_time:
         logging.error("Refusing staged-real evaluation without explicit %s acknowledgement", ACK_FLAG)
         return 2
@@ -100,7 +102,8 @@ def main() -> int:
         rows = []
         for source in real_sources:
             clip_dir = args.output_dir / "clips" / source.source_id
-            result = run_video_inference(paths[source.source_id], args.final_model_provenance, clip_dir, device_name=args.device)
+            result = run_video_inference(paths[source.source_id], args.final_model_provenance, clip_dir, source_id=source.source_id, device_name=args.device)
+            attach_run_log(args.output_dir / "staged_real.log")
             events = json.loads((clip_dir / "events.json").read_text(encoding="utf-8"))
             truth = [item for item in annotations if item.source_id == source.source_id and item.action_label == "spitting"]
             run_ids = {item.tracking_run_id for item in truth}

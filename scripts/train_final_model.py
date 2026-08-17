@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from spittrack.common.config import load_yaml
 from spittrack.common.errors import ContractError
 from spittrack.common.hashing import canonical_sha256
+from spittrack.common.logging_utils import attach_run_log
 from spittrack.common.reproducibility import initialize_run_directory, seed_everything
 from spittrack.data.contracts import load_source_metadata
 from spittrack.data.folds import FoldManifest
@@ -143,6 +144,7 @@ def main() -> int:
         else:
             environment = initialize_run_directory(run_dir, config=complete_config, training_manifest={"schema_version": 1, "purpose": "final_all_synthetic_no_validation", "seed": seed, "train": list(synthetic_ids), "validation": [], "test": [], "external_real_excluded": list(external_ids)}, seed=seed)
             (run_dir / "frozen_policy.json").write_text(json.dumps(policy, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        attach_run_log(run_dir / "run.log")
         device = torch.device(args.device)
         if device.type == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA was requested but is unavailable")
@@ -152,6 +154,13 @@ def main() -> int:
         checkpoint = run_dir / "final.pt"
         provenance = {"model_name": model_name, "checkpoint_path": checkpoint.name, "config_snapshot_path": "config_snapshot.json", "median_cv_best_epoch": int(policy["median_cv_best_epoch"]), "median_fold_validation_threshold": float(policy["median_fold_validation_threshold"]), "cv_summary_sha256": str(policy["cv_summary_sha256"]), "final_policy_sha256": policy_sha, "config_sha256": str(environment["config_sha256"]), "final_training_uses_validation_set": False, "training_source_count": result["training_source_count"]}
         (run_dir / "final_model_provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        logging.info(
+            "Completed final model=%s epochs=%d frozen_threshold=%.6f sources=%d",
+            model_name,
+            int(policy["median_cv_best_epoch"]),
+            float(policy["median_fold_validation_threshold"]),
+            int(result["training_source_count"]),
+        )
     except (ContractError, FileNotFoundError, ValueError, RuntimeError, KeyError, json.JSONDecodeError) as exc:
         logging.error("Final training refused or failed: %s", exc)
         return 2

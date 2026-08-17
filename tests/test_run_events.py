@@ -49,6 +49,11 @@ def test_run_event_evaluation_appends_real_computed_metrics(tmp_path: Path, sour
     )
     assert metrics["true_positives"] == 1
     assert (tmp_path / "events.csv").is_file()
+    with (tmp_path / "events.csv").open(encoding="utf-8", newline="") as stream:
+        event_row = next(csv.DictReader(stream))
+    assert event_row["event_type"] == "spitting"
+    assert event_row["duration_s"] == "3.0"
+    assert event_row["checkpoint"] == "best.pt"
     payload = json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
     assert "event_outer_test_raw_threshold" in payload
     assert payload["event_aggregation_ablation"]["aggregated_predicted_events"] == 1

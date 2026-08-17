@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
+import re
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -13,6 +16,12 @@ import torch
 from spittrack.common.config import load_yaml
 from spittrack.common.errors import ContractError
 from spittrack.common.hashing import canonical_sha256
+from spittrack.common.logging_utils import attach_run_log
+from spittrack.common.reproducibility import (
+    capture_package_freeze,
+    capture_run_environment,
+    seed_everything,
+)
 from spittrack.data.contracts import SourceRecord
 from spittrack.data.extract_tracks import extract_track_manifest
 from spittrack.data.materialize import materialize_window_clips
@@ -71,11 +80,44 @@ def load_final_model(provenance_path: Path, *, device: torch.device):
     return model, threshold, provenance
 
 
-def _write_events(events, output_dir: Path) -> None:
+def _write_events(
+    events,
+    output_dir: Path,
+    *,
+    video_file: str,
+    model_name: str,
+    checkpoint: str,
+) -> None:
     rows = []
     for index, event in enumerate(events, start=1):
-        rows.append({"event_id": f"event_{index:04d}", "source_id": event.source_id, "track_id": event.track_id, "start_s": event.start_s, "end_s": event.end_s, "confidence": event.confidence, "contributing_window_count": event.contributing_window_count, "bbox_x1": event.peak_bbox_xyxy[0], "bbox_y1": event.peak_bbox_xyxy[1], "bbox_x2": event.peak_bbox_xyxy[2], "bbox_y2": event.peak_bbox_xyxy[3]})
-    fields = ["event_id", "source_id", "track_id", "start_s", "end_s", "confidence", "contributing_window_count", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
+        event_id = f"event_{index:04d}"
+        rows.append(
+            {
+                "source_id": event.source_id,
+                "video_file": video_file,
+                "event_id": event_id,
+                "track_id": event.track_id,
+                "event_type": "spitting",
+                "start_s": event.start_s,
+                "end_s": event.end_s,
+                "duration_s": event.end_s - event.start_s,
+                "confidence": event.confidence,
+                "peak_x1": event.peak_bbox_xyxy[0],
+                "peak_y1": event.peak_bbox_xyxy[1],
+                "peak_x2": event.peak_bbox_xyxy[2],
+                "peak_y2": event.peak_bbox_xyxy[3],
+                "model_name": model_name,
+                "checkpoint": checkpoint,
+                "evidence_clip_path": f"evidence/{event_id}.mp4",
+                "contributing_window_count": event.contributing_window_count,
+            }
+        )
+    fields = [
+        "source_id", "video_file", "event_id", "track_id", "event_type",
+        "start_s", "end_s", "duration_s", "confidence", "peak_x1", "peak_y1",
+        "peak_x2", "peak_y2", "model_name", "checkpoint", "evidence_clip_path",
+        "contributing_window_count",
+    ]
     with (output_dir / "events.csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields); writer.writeheader(); writer.writerows(rows)
     (output_dir / "events.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
@@ -125,22 +167,61 @@ def _render(video_path: Path, track_frames, events, output_dir: Path, *, fps: in
             source.release(); clip.release()
 
 
-def run_video_inference(input_path: Path, provenance_path: Path, output_dir: Path, *, device_name: str = "cpu", data_config_path: Path = Path("configs/data.yaml"), detector_config_path: Path = Path("configs/detector.yaml"), tracker_config_path: Path = Path("configs/tracker.yaml"), inference_config_path: Path = Path("configs/inference.yaml"), batch_size: int = 4) -> dict[str, Any]:
+def run_video_inference(input_path: Path, provenance_path: Path, output_dir: Path, *, source_id: str | None = None, device_name: str = "cpu", data_config_path: Path = Path("configs/data.yaml"), detector_config_path: Path = Path("configs/detector.yaml"), tracker_config_path: Path = Path("configs/tracker.yaml"), inference_config_path: Path = Path("configs/inference.yaml"), batch_size: int = 4) -> dict[str, Any]:
     """Normalize, track, classify rolling person windows, aggregate, and render one video."""
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ContractError(f"Inference output directory is not empty: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    attach_run_log(output_dir / "run.log")
+    started = perf_counter()
+    source_id = source_id or input_path.stem
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", source_id):
+        raise ContractError(
+            "Inference source_id must contain only letters, digits, underscores, and hyphens"
+        )
+    logging.info("Starting full-video inference input=%s device=%s", input_path, device_name)
+    data_config = load_yaml(data_config_path)
+    detector = load_yaml(detector_config_path)
+    tracker = load_yaml(tracker_config_path)
+    inference_config = load_yaml(inference_config_path)
+    detector["device"] = device_name
+    seed = int(inference_config.get("seed", 42))
+    seed_everything(seed)
+    model_provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    config_snapshot = {
+        "data": data_config,
+        "detector": detector,
+        "tracker": tracker,
+        "inference": inference_config,
+        "runtime_device": device_name,
+    }
+    (output_dir / "config_snapshot.json").write_text(
+        json.dumps(config_snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (output_dir / "final_model_provenance.json").write_text(
+        json.dumps(model_provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    environment = {
+        **capture_run_environment(),
+        "seed": seed,
+        "config_sha256": canonical_sha256(config_snapshot),
+        "model_provenance_sha256": canonical_sha256(model_provenance),
+    }
+    (output_dir / "environment.json").write_text(
+        json.dumps(environment, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (output_dir / "pip_freeze.txt").write_text(
+        capture_package_freeze() + "\n", encoding="utf-8"
+    )
     normalized_root = output_dir / "intermediate" / "normalized"
-    normalized_path = normalized_root / "inference_source.mp4"
-    video_config = load_yaml(data_config_path)["video"]
+    normalized_path = normalized_root / f"{source_id}.mp4"
+    video_config = data_config["video"]
     fps = int(video_config["normalized_fps"])
     norm = normalize_video(input_path, normalized_path, target_fps=fps)
-    detector, tracker = load_yaml(detector_config_path), load_yaml(tracker_config_path)
-    detector["device"] = device_name
     manifest_dir = output_dir / "intermediate" / "tracking" / "manifests"
-    manifest_path = manifest_dir / "inference_source.csv"
-    run_id = extract_track_manifest(normalized_path, manifest_path, source_id="inference_source", detector_config=detector, tracker_config=tracker, fps=fps)
-    source = SourceRecord("inference_source", input_path.name, "synthetic", False, "non_spitting", "normal_activity", norm.output_duration_s, norm.input_fps, float(fps), norm.width, norm.height, "inference", "0" * 64, {})
+    manifest_path = manifest_dir / f"{source_id}.csv"
+    run_id = extract_track_manifest(normalized_path, manifest_path, source_id=source_id, detector_config=detector, tracker_config=tracker, fps=fps)
+    source = SourceRecord(source_id, input_path.name, "synthetic", False, "non_spitting", "normal_activity", norm.output_duration_s, norm.input_fps, float(fps), norm.width, norm.height, "inference", "0" * 64, {})
     track_frames = load_tracking_manifests(manifest_dir, [source])
     records, summary = build_window_index([source], track_frames, [], fps=fps, window_seconds=float(video_config["window_seconds"]), stride_seconds=float(video_config["stride_seconds"]), sampled_frames=int(video_config["sampled_frames"]))
     if not records:
@@ -161,10 +242,39 @@ def run_video_inference(input_path: Path, provenance_path: Path, output_dir: Pat
             probabilities = torch.softmax(model(torch.stack(clips).to(device)), dim=1)[:, 1].cpu().tolist()
             for record, probability in zip(batch_records, probabilities):
                 scores.append(WindowScore(record.source_id, record.track_id, record.start_s, record.end_s, float(probability), record.bbox_xyxy))
-    settings = load_yaml(inference_config_path)["event_aggregation"]
+    settings = inference_config["event_aggregation"]
     events = aggregate_events(scores, threshold=threshold, min_consecutive=int(settings["min_consecutive_positive_windows"]), merge_gap_s=float(settings["merge_gap_seconds"]), expected_stride_s=float(settings["expected_window_stride_seconds"]))
-    _write_events(events, output_dir)
     _render(normalized_path, track_frames, events, output_dir, fps=fps)
-    result = {"model_name": provenance["model_name"], "frozen_threshold": threshold, "tracking_run_id": run_id, "window_count": summary.emitted_windows, "event_count": len(events), "annotated_video": str((output_dir / "annotated.mp4").resolve())}
+    _write_events(
+        events,
+        output_dir,
+        video_file=input_path.name,
+        model_name=str(provenance["model_name"]),
+        checkpoint=str(provenance["checkpoint_path"]),
+    )
+    elapsed = perf_counter() - started
+    result = {
+        "model_name": provenance["model_name"],
+        "frozen_threshold": threshold,
+        "tracking_run_id": run_id,
+        "window_count": summary.emitted_windows,
+        "event_count": len(events),
+        "annotated_video": str((output_dir / "annotated.mp4").resolve()),
+        "end_to_end_performance": {
+            "device": device_name,
+            "scope": "raw_video_to_tracking_windows_classification_events_and_rendered_artifacts",
+            "input_duration_s": norm.output_duration_s,
+            "wall_time_s": elapsed,
+            "input_video_seconds_per_wall_second": norm.output_duration_s / max(elapsed, 1e-12),
+            "effective_input_frames_per_second": norm.output_frames / max(elapsed, 1e-12),
+        },
+    }
     (output_dir / "inference_summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    logging.info(
+        "Completed full-video inference windows=%d events=%d wall_time_s=%.3f effective_fps=%.3f",
+        summary.emitted_windows,
+        len(events),
+        elapsed,
+        norm.output_frames / max(elapsed, 1e-12),
+    )
     return result

@@ -51,6 +51,7 @@ def create_run(root: Path, model: str, fold: int, *, config_hash: str = "same") 
     (run / "outer_test_predictions.csv").write_text("window_id\n", encoding="utf-8")
     (run / "events.csv").write_text("source_id\n", encoding="utf-8")
     (run / "events.json").write_text("[]", encoding="utf-8")
+    (run / "run.log").write_text("completed\n", encoding="utf-8")
 
 
 def test_partial_matrix_is_refused_with_exact_missing_run(tmp_path: Path) -> None:
