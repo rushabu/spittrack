@@ -1,0 +1,8 @@
+model: videomae_fullframe
+checkpoint: MCG-NJU/videomae-base
+metrics_scope: scene_window_only
+track_attribution: false
+seed: 42
+frames: 16
+image_size: 224
+

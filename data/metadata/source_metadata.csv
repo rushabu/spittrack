@@ -1,0 +1,1 @@
+source_id,file_name,domain,contains_spit,primary_label,negative_subtype,generator_provider,generator_model,generator_version,generation_date,prompt_id,prompt_text,seed,candidate_index,qc_status,qc_rejection_reason,fps_original,fps_normalized,width,height,duration_s,camera_height_m,camera_angle,lighting,occlusion_level,split_role,sha256

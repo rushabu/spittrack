@@ -1,0 +1,7 @@
+implementation: ultralytics_bytetrack
+config: bytetrack.yaml
+persist_tracks: true
+minimum_track_duration_s: 2.0
+minimum_bbox_height_px_at_720p: 80
+roi_padding_fraction: 0.18
+

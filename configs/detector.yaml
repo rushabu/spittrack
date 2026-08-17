@@ -1,0 +1,7 @@
+weights: yolov8s.pt
+classes: [0]
+imgsz: 640
+conf: 0.25
+iou: 0.50
+device: cpu
+

@@ -1,0 +1,19 @@
+model: resnet50
+seed: 42
+input: center_frame
+image_size: 224
+num_classes: 2
+head_dropout: 0.30
+stage_1:
+  freeze_backbone: true
+  epochs: 3
+  lr_head: 0.001
+stage_2:
+  unfreeze: [layer4, fc]
+  max_epochs: 22
+  lr_backbone: 0.00001
+  lr_head: 0.0001
+  weight_decay: 0.0001
+  batch_size: 16
+  early_stopping_patience: 5
+

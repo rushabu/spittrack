@@ -1,0 +1,19 @@
+model: resnet_lstm
+seed: 42
+frames: 16
+image_size: 224
+feature_dim: 2048
+lstm:
+  hidden_size: 256
+  num_layers: 2
+  bidirectional: false
+  dropout: 0.30
+classifier_dropout: 0.30
+num_classes: 2
+lr_resnet_layer4: 0.00001
+lr_lstm_and_head: 0.0001
+weight_decay: 0.0001
+batch_size: 8
+max_epochs: 25
+early_stopping_patience: 5
+

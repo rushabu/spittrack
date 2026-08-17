@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Data and experiment products are local/Kaggle artifacts.
+data/raw/**/*.mp4
+data/normalized/
+data/tracking/manifests/*.csv
+data/tracking/previews/
+data/tracking/rejections/
+data/processed/
+outputs/
+
+# Keep committed contracts and immutable split manifests.
+!data/metadata/source_metadata.csv
+!data/annotations/action_intervals.csv
+!data/splits/.gitkeep
+

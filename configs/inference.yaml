@@ -1,0 +1,10 @@
+device: cpu
+event_aggregation:
+  smoothing: median
+  smoothing_window_count: 3
+  min_consecutive_positive_windows: 2
+  merge_gap_seconds: 1.0
+  event_confidence: mean_top_3
+staged_real:
+  require_one_time_acknowledgement: true
+

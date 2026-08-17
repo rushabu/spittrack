@@ -1,0 +1,25 @@
+paths:
+  metadata: data/metadata/source_metadata.csv
+  annotations: data/annotations/action_intervals.csv
+  synthetic_raw: data/raw/synthetic
+  real_staged_raw: data/raw/real_staged
+  tracking_manifests: data/tracking/manifests
+  splits: data/splits
+  window_index: data/processed/windows/windows.csv
+
+folds:
+  k: 5
+  seed: 42
+  validation_fraction: 0.25
+
+video:
+  normalized_fps: 25
+  window_seconds: 2.0
+  stride_seconds: 0.5
+  sampled_frames: 16
+  image_size: 224
+
+labels:
+  positive_overlap_fraction_of_action: 0.50
+  partial_overlap_label: ignore
+

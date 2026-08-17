@@ -1,0 +1,14 @@
+# Research runtime versions are resolved and smoke-tested on Kaggle before locking.
+numpy>=2.0,<3
+pandas>=2.2,<4
+PyYAML>=6.0,<7
+pytest>=8,<9
+
+# GPU/model dependencies are intentionally minimum-pinned until the Kaggle smoke test.
+torch>=2.4
+torchvision>=0.19
+ultralytics>=8.3
+transformers>=4.48
+opencv-python-headless>=4.10
+scikit-learn>=1.5
+
