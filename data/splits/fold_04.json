@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "fold": 4,
+  "seed": 42,
+  "train": [
+    "S01A",
+    "S01B",
+    "S02A",
+    "S02B",
+    "S02C",
+    "S03",
+    "S09",
+    "S10",
+    "S12A",
+    "S12B",
+    "S13",
+    "S14"
+  ],
+  "validation": [
+    "S05A",
+    "S05B",
+    "S05C",
+    "S07",
+    "S17"
+  ],
+  "test": [
+    "S04",
+    "S11",
+    "S20A",
+    "S20B",
+    "S20C"
+  ],
+  "external_real": [
+    "R01",
+    "R02",
+    "R03",
+    "R05A",
+    "R05B"
+  ],
+  "train_families": [
+    "S01",
+    "S02",
+    "S03",
+    "S09",
+    "S10",
+    "S12",
+    "S13",
+    "S14"
+  ],
+  "validation_families": [
+    "S05",
+    "S07",
+    "S17"
+  ],
+  "test_families": [
+    "S04",
+    "S11",
+    "S20"
+  ],
+  "manifest_sha256": "7088739475f8fdaeed9b194fe7304cf365c2fcece9dcbf623e84d5987437ad80"
+}

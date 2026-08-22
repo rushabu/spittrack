@@ -1,1 +1,23 @@
 source_id,tracking_run_id,track_id,actor_role,action_label,action_start_s,action_end_s,negative_subtype,annotation_confidence,notes
+S01A,tracking-186e4abba294bd0e,2,main_actor,spitting,5,7,,1,"spec time; verify by watching, adjust if drifted"
+S01B,tracking-186e4abba294bd0e,2,main_actor,spitting,4.5,7,,1,"spec time; verify by watching, adjust if drifted"
+S02A,tracking-186e4abba294bd0e,2,main_actor,spitting,4,6,,1,spec time; verify
+S02B,tracking-186e4abba294bd0e,2,main_actor,spitting,3.5,6,,1,spec time; verify
+S02C,tracking-186e4abba294bd0e,6,main_actor,spitting,5,7.5,,1,spec time; verify
+S03,tracking-186e4abba294bd0e,1,main_actor,spitting,5,7.5,,1,spec time; verify
+S04,tracking-186e4abba294bd0e,1,main_actor,spitting,4.5,7,,1,spec time; verify
+S05A,tracking-186e4abba294bd0e,3,main_actor,spitting,4.5,6.5,,1,CROWD SCENE: confirm which track is the designated actor
+S05B,tracking-186e4abba294bd0e,2,main_actor,spitting,2.5,4.5,,1,"WARNING: video is only 5s long, spec said 5.6-6.5s - watch and record the ACTUAL time, or reject clip if no spit"
+S05C,tracking-186e4abba294bd0e,1,main_actor,spitting,3,5,,1,CROWD SCENE: confirm which track is the designated actor
+S07,tracking-186e4abba294bd0e,3,main_actor,spitting,5,6.5,,1,spit happens AFTER occlusion; confirm same track before and after
+S09,tracking-186e4abba294bd0e,3,main_actor,spitting,7,8,,1,spec time; verify
+S10,tracking-186e4abba294bd0e,1,main_actor,spitting,5,6.5,,1,no spec time - watch and record actual spit interval
+S11,tracking-186e4abba294bd0e,1,main_actor,drink,4,6.5,drink,1,drinking interval; verify
+S12A,tracking-186e4abba294bd0e,1,main_actor,cough,3,5.5,cough,1,cough interval; verify
+S12B,tracking-186e4abba294bd0e,1,main_actor,cough,4,6.5,cough,1,cough interval; verify
+S13,tracking-186e4abba294bd0e,1,main_actor,sneeze,3.5,6.5,sneeze,1,sneeze interval; verify
+S14,tracking-186e4abba294bd0e,1,main_actor,eat,0,1.5,eat,1,eating interval; verify
+S17,tracking-186e4abba294bd0e,1,main_actor,bend_pickup,4,6,bend_pickup,1,bend/pickup interval; verify
+S20A,tracking-186e4abba294bd0e,2,main_actor,normal_activity,0,2,normal_activity,1,no action - normal throughout; confirm no one spits
+S20B,tracking-186e4abba294bd0e,5,main_actor,normal_activity,0,2,normal_activity,1,no action - normal throughout; confirm no one spits
+S20C,tracking-186e4abba294bd0e,218,main_actor,normal_activity,0,2,normal_activity,1,no action - normal throughout; confirm no one spits

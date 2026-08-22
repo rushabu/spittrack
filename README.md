@@ -83,15 +83,23 @@ x1, y1, x2, y2, det_conf
 
 Annotation happens only after the detector/tracker configuration is frozen. Run tracking, review the trajectories, then enter action intervals with the emitted `tracking_run_id` and `track_id` in `action_intervals.csv`. If detector weights or tracker configuration changes, regenerate tracking artifacts and annotations rather than reusing stale IDs.
 
+Generate CPU-only visual checks for every completed tracking manifest with:
+
+```bash
+python scripts/make_track_previews.py
+```
+
+This writes one complete timestamped MP4 per source under `data/tracking/previews/`, with each tracked person outlined and labelled by track ID. Use `--source-id SOURCE_ID` for a single preview and `--overwrite` only when deliberately regenerating derived previews.
+
 ## Fold construction
 
-The default `K=5` requires at least ten synthetic families: five positive and five negative. Exact fold balance also requires equal global positive and negative family counts. If these conditions are not met, construction reports the required minimum of `2K` families and at least `K` families per class; it never lowers `K`, drops families, or creates unbalanced folds.
+The default `K=5` requires at least ten synthetic families: at least five positive and five negative. Positive and negative families are sorted independently and assigned deterministically across folds; each per-class fold count differs by at most one even when the global class totals are unequal. Construction never lowers `K`, drops families, or splits a family.
 
 ```bash
 python scripts/build_folds.py --k 5 --seed 42
 ```
 
-Every variant in a family is assigned to the same train, validation, or outer-test partition. Each family—and therefore each synthetic source following its family—appears in an outer-test partition exactly once. This prevents near-duplicate variants with shared camera, subject, and action timing from crossing partitions and inflating held-out scores. Train, validation, test, and external-real source partitions are also disjoint. Generated manifests are immutable by default and must be generated once, reviewed, and committed before training on any machine.
+Every variant in a family is assigned to the same train, validation, or outer-test partition. Each family—and therefore each synthetic source following its family—appears in an outer-test partition exactly once. This prevents near-duplicate variants with shared camera, subject, and action timing from crossing partitions and inflating held-out scores. Train, validation, test, and external-real source partitions are also disjoint. The command reports family and source composition per outer fold and, when the fold-independent `windows.csv` already exists, positive, negative, and ignored window counts. Generated manifests are immutable by default and must be generated once, reviewed, and committed before training on any machine.
 
 ## Window construction and labels
 
@@ -203,7 +211,7 @@ Track IDs are transient within-video trajectory identifiers only. The project pe
 
 ## Troubleshooting
 
-- “Balanced family-grouped K-fold construction is impossible” means the metadata does not contain equal positive/negative synthetic family counts with at least `K` families per class. The tool reports the minimum `2K` families and will not weaken the protocol.
+- “Balanced family-grouped K-fold construction is impossible” means the metadata does not contain at least `K` positive and `K` negative synthetic families. The tool reports the minimum `2K` families and will not weaken the protocol.
 - A tracking-run mismatch means annotations were produced with different detector/tracker settings. Regenerate manifests and annotations; do not edit the recorded hash.
 - A CUDA OOM during temporal training triggers the declared physical-batch-one fallback only when effective batch size can be preserved. Inspect `runtime_adjustments.json`.
 - An incomplete-matrix error lists the exact missing model/fold artifacts. Recover those complete run directories rather than aggregating a subset.

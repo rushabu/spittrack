@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -76,10 +75,15 @@ class FoldManifest:
         return payload
 
 
-def _round_robin_chunks(values: list[str], k: int) -> list[list[str]]:
+def _round_robin_chunks(
+    values: list[str], k: int, *, fold_order: Iterable[int] | None = None
+) -> list[list[str]]:
     chunks = [[] for _ in range(k)]
+    order = list(range(k) if fold_order is None else fold_order)
+    if sorted(order) != list(range(k)):
+        raise FoldError(f"fold_order must contain every fold index exactly once, got {order}")
     for index, value in enumerate(values):
-        chunks[index % k].append(value)
+        chunks[order[index % k]].append(value)
     return chunks
 
 
@@ -129,20 +133,13 @@ def build_balanced_folds(
             f"({len(positive_families)} positive families, "
             f"{len(negative_families)} negative families). K will not be reduced."
         )
-    if len(positive_families) != len(negative_families):
-        raise FoldError(
-            "Exactly balanced family-level folds require equal positive and negative family counts; "
-            f"found {len(positive_families)} positive families and "
-            f"{len(negative_families)} negative families. No family will be dropped and folds "
-            "will not be unbalanced silently."
-        )
-
-    positive_rng = random.Random(seed)
-    negative_rng = random.Random(seed + 1)
-    positive_rng.shuffle(positive_families)
-    negative_rng.shuffle(negative_families)
     positive_tests = _round_robin_chunks(positive_families, k)
-    negative_tests = _round_robin_chunks(negative_families, k)
+    negative_fold_order = sorted(
+        range(k), key=lambda fold_index: (len(positive_tests[fold_index]), fold_index)
+    )
+    negative_tests = _round_robin_chunks(
+        negative_families, k, fold_order=negative_fold_order
+    )
 
     all_families = set(positive_families) | set(negative_families)
     all_synthetic_ids = {source.source_id for source in synthetic}
@@ -160,11 +157,6 @@ def build_balanced_folds(
     for fold_index in range(k):
         test_pos = positive_tests[fold_index]
         test_neg = negative_tests[fold_index]
-        if len(test_pos) != len(test_neg):
-            raise FoldError(
-                f"fold {fold_index + 1}: test partition would be unbalanced "
-                f"({len(test_pos)} positive, {len(test_neg)} negative)"
-            )
         remaining_pos = [value for value in positive_families if value not in test_pos]
         remaining_neg = [value for value in negative_families if value not in test_neg]
         if len(remaining_pos) < 2 or len(remaining_neg) < 2:
@@ -172,13 +164,23 @@ def build_balanced_folds(
                 f"fold {fold_index + 1}: insufficient families remain for both balanced "
                 "validation and training partitions"
             )
-        validation_per_class = max(1, round(len(remaining_pos) * validation_fraction))
-        validation_per_class = min(validation_per_class, len(remaining_pos) - 1)
-        rotation = fold_index % len(remaining_pos)
-        rotated_pos = remaining_pos[rotation:] + remaining_pos[:rotation]
-        rotated_neg = remaining_neg[rotation:] + remaining_neg[:rotation]
+        validation_positive_count = min(
+            max(1, round(len(remaining_pos) * validation_fraction)),
+            len(remaining_pos) - 1,
+        )
+        validation_negative_count = min(
+            max(1, round(len(remaining_neg) * validation_fraction)),
+            len(remaining_neg) - 1,
+        )
+        positive_rotation = fold_index % len(remaining_pos)
+        negative_rotation = fold_index % len(remaining_neg)
+        rotated_pos = remaining_pos[positive_rotation:] + remaining_pos[:positive_rotation]
+        rotated_neg = remaining_neg[negative_rotation:] + remaining_neg[:negative_rotation]
         validation_families = tuple(
-            sorted(rotated_pos[:validation_per_class] + rotated_neg[:validation_per_class])
+            sorted(
+                rotated_pos[:validation_positive_count]
+                + rotated_neg[:validation_negative_count]
+            )
         )
         test_families = tuple(sorted(test_pos + test_neg))
         train_families = tuple(

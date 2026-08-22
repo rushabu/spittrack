@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from spittrack.common.errors import FoldError
-from spittrack.data.folds import build_balanced_folds, load_fold_manifest, write_fold_manifests
+from spittrack.data.folds import (
+    FoldManifest,
+    build_balanced_folds,
+    load_fold_manifest,
+    write_fold_manifests,
+)
 
 
 def test_five_folds_are_balanced_disjoint_and_cover_every_synthetic_source_once(
@@ -77,6 +82,22 @@ def test_all_variants_of_a_family_stay_in_one_partition_and_each_family_is_teste
     assert len(tested_families) == len(set(tested_families))
 
 
+def test_manifest_family_leakage_is_a_hard_failure() -> None:
+    manifest = FoldManifest(
+        fold=1,
+        train=("variant-a",),
+        validation=("variant-b",),
+        test=("variant-c",),
+        external_real=(),
+        seed=42,
+        train_families=("shared-family",),
+        validation_families=("other-family",),
+        test_families=("shared-family",),
+    )
+    with pytest.raises(FoldError, match="family leakage between train and test"):
+        manifest.validate()
+
+
 def test_impossible_five_fold_reports_required_minimum(source_factory) -> None:
     sources = [source_factory(f"P{index}", True) for index in range(4)]
     sources += [source_factory(f"N{index}", False) for index in range(4)]
@@ -87,11 +108,31 @@ def test_impossible_five_fold_reports_required_minimum(source_factory) -> None:
         build_balanced_folds(sources, k=5)
 
 
-def test_unequal_classes_are_not_silently_unbalanced(source_factory) -> None:
-    sources = [source_factory(f"P{index}", True) for index in range(6)]
-    sources += [source_factory(f"N{index}", False) for index in range(5)]
-    with pytest.raises(FoldError, match="equal positive and negative family counts"):
-        build_balanced_folds(sources, k=5)
+def test_unequal_family_classes_are_conserved_with_at_most_one_family_spread(
+    source_factory,
+) -> None:
+    sources = [source_factory(f"positive-{index}", True) for index in range(8)]
+    sources += [source_factory(f"negative-{index}", False) for index in range(6)]
+    folds = build_balanced_folds(reversed(sources), k=5, seed=42)
+
+    positive_counts = []
+    negative_counts = []
+    total_counts = []
+    tested_families: list[str] = []
+    for fold in folds:
+        positive_count = sum(family.startswith("positive-") for family in fold.test_families)
+        negative_count = sum(family.startswith("negative-") for family in fold.test_families)
+        positive_counts.append(positive_count)
+        negative_counts.append(negative_count)
+        total_counts.append(len(fold.test_families))
+        tested_families.extend(fold.test_families)
+
+    assert max(positive_counts) - min(positive_counts) <= 1
+    assert max(negative_counts) - min(negative_counts) <= 1
+    assert max(total_counts) - min(total_counts) <= 1
+    assert sorted(tested_families) == sorted(source.source_id for source in sources)
+    assert len(tested_families) == len(set(tested_families))
+    assert folds == build_balanced_folds(sources, k=5, seed=42)
 
 
 def test_manifests_refuse_overwrite(tmp_path: Path, source_factory) -> None:
