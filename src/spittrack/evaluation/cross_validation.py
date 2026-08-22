@@ -25,6 +25,7 @@ EVENT_OPTIONAL_METRICS = (
     "mean_end_error_s",
     "track_attribution_accuracy",
 )
+PARTITIONS = ("train", "validation", "outer_test")
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,29 @@ def _load_run_metrics(run_dir: Path) -> tuple[dict, dict]:
     return metrics, environment
 
 
+def _validated_partition_counts(metrics: dict, identity: str) -> dict[str, dict[str, int]]:
+    data_counts = metrics.get("data_counts")
+    if not isinstance(data_counts, dict):
+        raise ContractError(f"{identity} has no data_counts object")
+    validated: dict[str, dict[str, int]] = {}
+    for partition in PARTITIONS:
+        counts = data_counts.get(partition)
+        if not isinstance(counts, dict):
+            raise ContractError(f"{identity} has no data_counts.{partition} object")
+        for field in ("source_count", "family_count"):
+            value = counts.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ContractError(
+                    f"{identity} missing non-negative integer data_counts.{partition}.{field}"
+                )
+        if counts["family_count"] > counts["source_count"]:
+            raise ContractError(
+                f"{identity} reports more families than source videos in {partition}"
+            )
+        validated[partition] = counts
+    return validated
+
+
 def aggregate_complete_matrix(
     output_root: Path,
     *,
@@ -160,6 +184,7 @@ def aggregate_complete_matrix(
             raise ContractError(
                 f"Run identity mismatch: directory says {model}, metrics says {metrics.get('model')}"
             )
+        _validated_partition_counts(metrics, f"{model}/fold_{fold:02d}")
         outer = metrics.get("outer_test")
         if not isinstance(outer, dict):
             raise ContractError(f"{model}/fold_{fold:02d} has no outer_test metric object")
@@ -246,6 +271,56 @@ def aggregate_complete_matrix(
                 )
             )
     return aggregates
+
+
+def write_partition_count_summary(
+    output_root: Path,
+    *,
+    models: Iterable[str],
+    folds: Iterable[int],
+    output_path: Path,
+) -> None:
+    """Write paper-ready per-partition source-video and family counts."""
+    rows: list[dict[str, object]] = []
+    for model in models:
+        for fold in folds:
+            identity = f"{model}/fold_{fold:02d}"
+            metrics, _ = _load_run_metrics(output_root / "runs" / model / f"fold_{fold:02d}")
+            counts_by_partition = _validated_partition_counts(metrics, identity)
+            for partition in PARTITIONS:
+                counts = counts_by_partition[partition]
+                rows.append(
+                    {
+                        "model": model,
+                        "fold": fold,
+                        "partition": partition,
+                        "source_video_count": counts["source_count"],
+                        "family_count": counts["family_count"],
+                        "source_family_summary": (
+                            f"{counts['source_count']} sources / "
+                            f"{counts['family_count']} families"
+                        ),
+                        "track_count": counts.get("track_count", ""),
+                        "usable_window_count": counts.get("usable_window_count", ""),
+                    }
+                )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=[
+                "model",
+                "fold",
+                "partition",
+                "source_video_count",
+                "family_count",
+                "source_family_summary",
+                "track_count",
+                "usable_window_count",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def write_cross_validation_summary(

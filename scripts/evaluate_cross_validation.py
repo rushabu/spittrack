@@ -18,6 +18,7 @@ from spittrack.evaluation.cross_validation import (
     aggregate_complete_matrix,
     select_final_model_policy,
     write_cross_validation_summary,
+    write_partition_count_summary,
 )
 from spittrack.evaluation.plots import (
     plot_cross_validation_comparisons,
@@ -55,6 +56,15 @@ def main() -> int:
         )
         destination = args.output_root / "cross_validation" / "cross_validation_summary.csv"
         write_cross_validation_summary(aggregates, destination)
+        count_destination = (
+            args.output_root / "cross_validation" / "cross_validation_partition_counts.csv"
+        )
+        write_partition_count_summary(
+            args.output_root,
+            models=args.models,
+            folds=range(1, args.folds + 1),
+            output_path=count_destination,
+        )
         policy = select_final_model_policy(
             args.output_root,
             candidate_models=args.selection_models,
@@ -77,6 +87,7 @@ def main() -> int:
         logging.error("CV aggregation failed: %s", exc)
         return 2
     logging.info("Wrote complete-matrix CV summary: %s", destination)
+    logging.info("Wrote source/family partition table: %s", count_destination)
     logging.info("Froze final-model policy: %s", policy_path)
     logging.info("Wrote paper plots: %s", plots_dir)
     return 0

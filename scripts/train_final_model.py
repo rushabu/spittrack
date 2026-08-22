@@ -123,11 +123,23 @@ def main() -> int:
         seed = int(config.get("seed", 42))
         seed_everything(seed)
         sources = load_source_metadata(args.metadata, require_files=False)
-        synthetic_ids = tuple(sorted(source.source_id for source in sources if source.domain == "synthetic"))
+        synthetic_sources = [source for source in sources if source.domain == "synthetic"]
+        synthetic_ids = tuple(sorted(source.source_id for source in synthetic_sources))
+        synthetic_families = tuple(
+            sorted({str(source.family_id) for source in synthetic_sources})
+        )
         external_ids = tuple(sorted(source.source_id for source in sources if source.domain == "real_staged"))
         if not synthetic_ids:
             raise ContractError("Final training requires at least one validated synthetic source")
-        manifest = FoldManifest(0, synthetic_ids, (), (), external_ids, seed)
+        manifest = FoldManifest(
+            0,
+            synthetic_ids,
+            (),
+            (),
+            external_ids,
+            seed,
+            train_families=synthetic_families,
+        )
         dataset = WindowClipDataset(args.window_index, args.windows_root, manifest, "train", training=True, augmentation=load_yaml(args.data_config)["augmentation"])
         batch_size = int(config["stage_2"]["batch_size"] if model_name == "resnet50" else config.get("batch_size", config.get("physical_batch_size")))
         loader = DataLoader(dataset, batch_size=batch_size, sampler=source_class_balanced_sampler(dataset), num_workers=args.num_workers, pin_memory=args.device.startswith("cuda"))
@@ -142,7 +154,7 @@ def main() -> int:
                 raise FileNotFoundError(f"--resume requested but missing {resume_path}")
             environment = json.loads((run_dir / "environment.json").read_text(encoding="utf-8"))
         else:
-            environment = initialize_run_directory(run_dir, config=complete_config, training_manifest={"schema_version": 1, "purpose": "final_all_synthetic_no_validation", "seed": seed, "train": list(synthetic_ids), "validation": [], "test": [], "external_real_excluded": list(external_ids)}, seed=seed)
+            environment = initialize_run_directory(run_dir, config=complete_config, training_manifest={"schema_version": 2, "purpose": "final_all_synthetic_no_validation", "seed": seed, "train": list(synthetic_ids), "train_families": list(synthetic_families), "validation": [], "validation_families": [], "test": [], "test_families": [], "external_real_excluded": list(external_ids)}, seed=seed)
             (run_dir / "frozen_policy.json").write_text(json.dumps(policy, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         attach_run_log(run_dir / "run.log")
         device = torch.device(args.device)
@@ -151,15 +163,20 @@ def main() -> int:
         model, optimizer, accumulation, warmup, clip_norm, callback, linear = _model_optimizer(model_name, config)
         model.to(device)
         result = train_fixed_policy(model, loader, optimizer=optimizer, model_name=model_name, run_dir=run_dir, device=device, epochs=int(policy["median_cv_best_epoch"]), frozen_threshold=float(policy["median_fold_validation_threshold"]), config_sha256=str(environment["config_sha256"]), policy_sha256=policy_sha, gradient_accumulation_steps=accumulation, warmup_fraction=warmup, gradient_clip_norm=clip_norm, resume_path=resume_path, epoch_start_callback=callback, use_linear_schedule=linear)
+        result["training_family_count"] = len(synthetic_families)
+        (run_dir / "metrics.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         checkpoint = run_dir / "final.pt"
-        provenance = {"model_name": model_name, "checkpoint_path": checkpoint.name, "config_snapshot_path": "config_snapshot.json", "median_cv_best_epoch": int(policy["median_cv_best_epoch"]), "median_fold_validation_threshold": float(policy["median_fold_validation_threshold"]), "cv_summary_sha256": str(policy["cv_summary_sha256"]), "final_policy_sha256": policy_sha, "config_sha256": str(environment["config_sha256"]), "final_training_uses_validation_set": False, "training_source_count": result["training_source_count"]}
+        provenance = {"model_name": model_name, "checkpoint_path": checkpoint.name, "config_snapshot_path": "config_snapshot.json", "median_cv_best_epoch": int(policy["median_cv_best_epoch"]), "median_fold_validation_threshold": float(policy["median_fold_validation_threshold"]), "cv_summary_sha256": str(policy["cv_summary_sha256"]), "final_policy_sha256": policy_sha, "config_sha256": str(environment["config_sha256"]), "final_training_uses_validation_set": False, "training_source_count": result["training_source_count"], "training_family_count": result["training_family_count"]}
         (run_dir / "final_model_provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         logging.info(
-            "Completed final model=%s epochs=%d frozen_threshold=%.6f sources=%d",
+            "Completed final model=%s epochs=%d frozen_threshold=%.6f sources=%d families=%d",
             model_name,
             int(policy["median_cv_best_epoch"]),
             float(policy["median_fold_validation_threshold"]),
             int(result["training_source_count"]),
+            int(result["training_family_count"]),
         )
     except (ContractError, FileNotFoundError, ValueError, RuntimeError, KeyError, json.JSONDecodeError) as exc:
         logging.error("Final training refused or failed: %s", exc)

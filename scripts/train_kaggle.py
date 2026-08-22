@@ -161,7 +161,7 @@ def _train_resnet_fold(args: argparse.Namespace, config: dict, fold_number: int)
         resume_path=resume_path,
     )
     _append_dataset_counts(
-        run_dir, (train_dataset, validation_dataset, test_dataset)
+        run_dir, manifest, (train_dataset, validation_dataset, test_dataset)
     )
     _append_event_evaluation(
         args,
@@ -214,23 +214,51 @@ def _append_event_evaluation(
 
 def _append_dataset_counts(
     run_dir: Path,
+    manifest,
     datasets: tuple[WindowClipDataset, WindowClipDataset, WindowClipDataset],
 ) -> None:
     partitions = ("train", "validation", "outer_test")
+    partition_sources = {
+        "train": manifest.train,
+        "validation": manifest.validation,
+        "outer_test": manifest.test,
+    }
+    partition_families = {
+        "train": manifest.train_families,
+        "validation": manifest.validation_families,
+        "outer_test": manifest.test_families,
+    }
     counts = {}
     for partition, dataset in zip(partitions, datasets):
+        assigned_source_ids = set(partition_sources[partition])
+        dataset_source_ids = set(dataset.source_ids)
+        unknown = sorted(dataset_source_ids - assigned_source_ids)
+        if unknown:
+            raise ValueError(
+                f"Dataset count reporting found sources outside the {partition} manifest: {unknown}"
+            )
+        family_ids = set(partition_families[partition])
         track_pairs = {
             (row["source_id"], int(row["track_id"]))
             for row in dataset.rows
             if int(row["track_id"]) >= 0
         }
         counts[partition] = {
-            "source_count": len(set(dataset.source_ids)),
+            "source_count": len(assigned_source_ids),
+            "family_count": len(family_ids),
             "track_count": len(track_pairs),
             "usable_window_count": len(dataset),
             "positive_window_count": sum(dataset.labels),
             "negative_window_count": len(dataset.labels) - sum(dataset.labels),
         }
+        logging.info(
+            "model partition=%s: %d source videos / %d families / %d tracks / %d windows",
+            partition,
+            len(assigned_source_ids),
+            len(family_ids),
+            len(track_pairs),
+            len(dataset),
+        )
     metrics_path = run_dir / "metrics.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     metrics["data_counts"] = counts
@@ -464,7 +492,7 @@ def _train_temporal_fold(args: argparse.Namespace, config: dict, fold_number: in
             new_accumulation,
             retry_checkpoint if retry_checkpoint.is_file() else None,
         )
-    _append_dataset_counts(run_dir, datasets)
+    _append_dataset_counts(run_dir, manifest, datasets)
     _append_event_evaluation(
         args,
         manifest,

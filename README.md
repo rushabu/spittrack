@@ -1,6 +1,6 @@
 # SpitTrack
 
-SpitTrack is a research-first, person-centric pipeline for spitting-event detection in railway-style surveillance video. The scientific unit of isolation is the **source video**, never an extracted frame, track, or window. The submission deadline is **30 August 2026**, so implementation is prioritized as follows:
+SpitTrack is a research-first, person-centric pipeline for spitting-event detection in railway-style surveillance video. Correlated synthetic variants are isolated as one **generation family**; a source video is never split into extracted-frame, track, or window units. The submission deadline is **30 August 2026**, so implementation is prioritized as follows:
 
 1. leakage-safe folds and deterministic windows;
 2. ResNet50 baseline results;
@@ -68,7 +68,7 @@ Normal validation requires populated rows and referenced files:
 python scripts/validate_sources.py
 ```
 
-Optional metadata columns from the project plan are accepted when present: `location_type`, `permission_reference`, `consent_reference`, `main_actor_count`, and `crowd_count`. They are not required by the loader. Synthetic generator provenance and source hashes are required for populated synthetic rows.
+`family_id` is required and non-empty for every synthetic row. All variants generated from the same shot-list specification must use the same `family_id`, and a family may contain only one `contains_spit` class. Staged-real rows must leave `family_id` blank. Source IDs and filenames are opaque values read from the CSV—there is no `S<NN>` naming requirement. Optional metadata columns from the project plan are accepted when present: `location_type`, `permission_reference`, `consent_reference`, `main_actor_count`, and `crowd_count`. They are not required by the loader. Synthetic generator provenance and source hashes are required for populated synthetic rows.
 
 ## Tracking manifest contract
 
@@ -85,13 +85,13 @@ Annotation happens only after the detector/tracker configuration is frozen. Run 
 
 ## Fold construction
 
-The default `K=5` requires at least ten synthetic sources: five positive and five negative. Exact fold balance also requires equal global positive and negative source counts. If these conditions are not met, construction fails and reports `N >= 2K` and the per-class minimum; it never lowers `K`, drops sources, or creates unbalanced folds.
+The default `K=5` requires at least ten synthetic families: five positive and five negative. Exact fold balance also requires equal global positive and negative family counts. If these conditions are not met, construction reports the required minimum of `2K` families and at least `K` families per class; it never lowers `K`, drops families, or creates unbalanced folds.
 
 ```bash
 python scripts/build_folds.py --k 5 --seed 42
 ```
 
-Each source appears in an outer-test partition exactly once. Train, validation, test, and external-real partitions are disjoint. Generated manifests are immutable by default and must be generated once, reviewed, and committed before training on any machine.
+Every variant in a family is assigned to the same train, validation, or outer-test partition. Each family—and therefore each synthetic source following its family—appears in an outer-test partition exactly once. This prevents near-duplicate variants with shared camera, subject, and action timing from crossing partitions and inflating held-out scores. Train, validation, test, and external-real source partitions are also disjoint. Generated manifests are immutable by default and must be generated once, reviewed, and committed before training on any machine.
 
 ## Window construction and labels
 
@@ -165,7 +165,7 @@ Merge complete run directories locally, then execute:
 python scripts/evaluate_cross_validation.py --output-root outputs
 ```
 
-Aggregation refuses to run until all expected model × fold directories contain checkpoints, manifests, environments, logs, window predictions, event metrics, and hard-negative results. It writes mean ± sample-standard-deviation rows to `cross_validation_summary.csv` and generates real-data paper plots under `outputs/plots/`: per-model confusion matrices and PR curves, the event-F1 model comparison, raw-threshold versus temporal-aggregation ablation, and hard-negative breakdown. It also writes `final_model_policy.json`, selecting among the three track-wise candidates by mean event F1 and then lower false positives/minute, and freezes the winner's median CV best epoch and median validation threshold. Whole-frame VideoMAE remains an ablation and is not eligible to become the final person-centric model.
+Aggregation refuses to run until all expected model × fold directories contain checkpoints, manifests, environments, logs, window predictions, event metrics, hard-negative results, and both source-video and family counts for every partition. It writes mean ± sample-standard-deviation rows to `cross_validation_summary.csv`, a paper-ready `cross_validation_partition_counts.csv` with entries such as “22 sources / 8 families,” and real-data paper plots under `outputs/plots/`: per-model confusion matrices and PR curves, the event-F1 model comparison, raw-threshold versus temporal-aggregation ablation, and hard-negative breakdown. Variant counts are never presented as independent-scene counts. It also writes `final_model_policy.json`, selecting among the three track-wise candidates by mean event F1 and then lower false positives/minute, and freezes the winner's median CV best epoch and median validation threshold. Whole-frame VideoMAE remains an ablation and is not eligible to become the final person-centric model.
 
 ## Final model and staged-real guard
 
@@ -203,7 +203,7 @@ Track IDs are transient within-video trajectory identifiers only. The project pe
 
 ## Troubleshooting
 
-- “Balanced K-fold construction is impossible” means the metadata does not contain equal positive/negative synthetic source counts with at least `K` per class. The tool reports the required minimum and will not weaken the protocol.
+- “Balanced family-grouped K-fold construction is impossible” means the metadata does not contain equal positive/negative synthetic family counts with at least `K` families per class. The tool reports the minimum `2K` families and will not weaken the protocol.
 - A tracking-run mismatch means annotations were produced with different detector/tracker settings. Regenerate manifests and annotations; do not edit the recorded hash.
 - A CUDA OOM during temporal training triggers the declared physical-batch-one fallback only when effective batch size can be preserved. Inspect `runtime_adjustments.json`.
 - An incomplete-matrix error lists the exact missing model/fold artifacts. Recover those complete run directories rather than aggregating a subset.

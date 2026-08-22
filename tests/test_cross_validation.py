@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from spittrack.data.contracts import NEGATIVE_SUBTYPES
 from spittrack.evaluation.cross_validation import (
     aggregate_complete_matrix,
     select_final_model_policy,
+    write_partition_count_summary,
 )
 
 
@@ -39,6 +41,26 @@ def create_run(root: Path, model: str, fold: int, *, config_hash: str = "same") 
         "event_outer_test_raw_threshold": {"f1": 0.4},
         "hard_negative_false_positive_counts": {
             subtype: 0 for subtype in NEGATIVE_SUBTYPES
+        },
+        "data_counts": {
+            "train": {
+                "source_count": 22,
+                "family_count": 8,
+                "track_count": 30,
+                "usable_window_count": 100,
+            },
+            "validation": {
+                "source_count": 7,
+                "family_count": 2,
+                "track_count": 9,
+                "usable_window_count": 25,
+            },
+            "outer_test": {
+                "source_count": 8,
+                "family_count": 2,
+                "track_count": 10,
+                "usable_window_count": 30,
+            },
         },
     }
     (run / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
@@ -75,6 +97,32 @@ def test_config_hash_mismatch_across_folds_is_refused(tmp_path: Path) -> None:
     create_run(tmp_path, "resnet50", 2, config_hash="b")
     with pytest.raises(ContractError, match="Config hash differs"):
         aggregate_complete_matrix(tmp_path, models=["resnet50"], folds=[1, 2])
+
+
+def test_cv_partition_table_reports_sources_and_families(tmp_path: Path) -> None:
+    create_run(tmp_path, "resnet50", 1)
+    destination = tmp_path / "paper" / "partition_counts.csv"
+    write_partition_count_summary(
+        tmp_path,
+        models=["resnet50"],
+        folds=[1],
+        output_path=destination,
+    )
+    with destination.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[0]["source_video_count"] == "22"
+    assert rows[0]["family_count"] == "8"
+    assert rows[0]["source_family_summary"] == "22 sources / 8 families"
+
+
+def test_cv_aggregation_refuses_missing_family_count(tmp_path: Path) -> None:
+    create_run(tmp_path, "resnet50", 1)
+    path = tmp_path / "runs" / "resnet50" / "fold_01" / "metrics.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["data_counts"]["outer_test"]["family_count"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ContractError, match="outer_test.family_count"):
+        aggregate_complete_matrix(tmp_path, models=["resnet50"], folds=[1])
 
 
 def test_final_policy_uses_event_f1_then_fp_and_median_cv_values(tmp_path: Path) -> None:

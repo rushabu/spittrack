@@ -221,7 +221,23 @@ def run_video_inference(input_path: Path, provenance_path: Path, output_dir: Pat
     manifest_dir = output_dir / "intermediate" / "tracking" / "manifests"
     manifest_path = manifest_dir / f"{source_id}.csv"
     run_id = extract_track_manifest(normalized_path, manifest_path, source_id=source_id, detector_config=detector, tracker_config=tracker, fps=fps)
-    source = SourceRecord(source_id, input_path.name, "synthetic", False, "non_spitting", "normal_activity", norm.output_duration_s, norm.input_fps, float(fps), norm.width, norm.height, "inference", "0" * 64, {})
+    source = SourceRecord(
+        source_id=source_id,
+        family_id=source_id,
+        file_name=input_path.name,
+        domain="synthetic",
+        contains_spit=False,
+        primary_label="non_spitting",
+        negative_subtype="normal_activity",
+        duration_s=norm.output_duration_s,
+        fps_original=norm.input_fps,
+        fps_normalized=float(fps),
+        width=norm.width,
+        height=norm.height,
+        split_role="inference",
+        sha256="0" * 64,
+        row={},
+    )
     track_frames = load_tracking_manifests(manifest_dir, [source])
     records, summary = build_window_index([source], track_frames, [], fps=fps, window_seconds=float(video_config["window_seconds"]), stride_seconds=float(video_config["stride_seconds"]), sampled_frames=int(video_config["sampled_frames"]))
     if not records:

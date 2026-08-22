@@ -13,6 +13,7 @@ from spittrack.common.errors import ContractError
 
 METADATA_REQUIRED_COLUMNS = (
     "source_id",
+    "family_id",
     "file_name",
     "domain",
     "contains_spit",
@@ -88,6 +89,7 @@ class SourceRecord:
     """Validated metadata for one source video."""
 
     source_id: str
+    family_id: str | None
     file_name: str
     domain: str
     contains_spit: bool
@@ -204,6 +206,7 @@ def load_source_metadata(
 
     records: list[SourceRecord] = []
     seen_ids: set[str] = set()
+    family_classes: dict[str, bool] = {}
     for row_number, row in enumerate(rows, start=2):
         context = f"metadata row {row_number}"
         source_id = row["source_id"]
@@ -217,6 +220,18 @@ def load_source_metadata(
         if domain not in DOMAINS:
             raise ContractError(f"{context}: domain must be one of {sorted(DOMAINS)}, got {domain!r}")
         contains_spit = _parse_bool(row["contains_spit"], "contains_spit", context)
+        family_id = row["family_id"] or None
+        if domain == "synthetic":
+            if family_id is None:
+                raise ContractError(f"{context}: synthetic source requires non-empty family_id")
+            prior_class = family_classes.get(family_id)
+            if prior_class is not None and prior_class != contains_spit:
+                raise ContractError(
+                    f"{context}: family_id {family_id!r} mixes contains_spit=true and false sources"
+                )
+            family_classes[family_id] = contains_spit
+        elif family_id is not None:
+            raise ContractError(f"{context}: real_staged source must have blank family_id")
         primary_label = row["primary_label"]
         if primary_label not in PRIMARY_LABELS:
             raise ContractError(
@@ -276,6 +291,7 @@ def load_source_metadata(
 
         record = SourceRecord(
             source_id=source_id,
+            family_id=family_id,
             file_name=row["file_name"],
             domain=domain,
             contains_spit=contains_spit,

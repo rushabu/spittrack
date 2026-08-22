@@ -48,11 +48,15 @@ def main() -> int:
     logging.info("Wrote %d immutable manifest files for %d folds", len(paths), len(folds))
     for fold in folds:
         logging.info(
-            "fold=%02d train=%d validation=%d test=%d external_real=%d",
+            "fold=%02d train=%d sources/%d families validation=%d sources/%d families "
+            "test=%d sources/%d families external_real=%d sources",
             fold.fold,
             len(fold.train),
+            len(fold.train_families),
             len(fold.validation),
+            len(fold.validation_families),
             len(fold.test),
+            len(fold.test_families),
             len(fold.external_real),
         )
     return 0

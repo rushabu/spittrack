@@ -11,6 +11,7 @@ from spittrack.data.contracts import METADATA_REQUIRED_COLUMNS, load_source_meta
 def valid_row(source_id: str = "S01") -> list[object]:
     values = {
         "source_id": source_id,
+        "family_id": source_id,
         "file_name": f"{source_id}.mp4",
         "domain": "synthetic",
         "contains_spit": "true",
@@ -78,6 +79,7 @@ def test_real_source_cannot_have_train_role(tmp_path: Path, write_csv) -> None:
     row = valid_row("R01")
     index = {name: position for position, name in enumerate(METADATA_REQUIRED_COLUMNS)}
     row[index["domain"]] = "real_staged"
+    row[index["family_id"]] = ""
     row[index["split_role"]] = "train"
     row[index["generator_provider"]] = ""
     row[index["generator_model"]] = ""
@@ -86,3 +88,40 @@ def test_real_source_cannot_have_train_role(tmp_path: Path, write_csv) -> None:
         write_csv(path, list(METADATA_REQUIRED_COLUMNS), [row])
         load_source_metadata(path, require_files=False)
 
+
+def test_synthetic_source_requires_family_id(tmp_path: Path, write_csv) -> None:
+    path = tmp_path / "metadata.csv"
+    row = valid_row()
+    row[list(METADATA_REQUIRED_COLUMNS).index("family_id")] = ""
+    write_csv(path, list(METADATA_REQUIRED_COLUMNS), [row])
+    with pytest.raises(ContractError, match="requires non-empty family_id"):
+        load_source_metadata(path, require_files=False)
+
+
+def test_real_source_requires_blank_family_id(tmp_path: Path, write_csv) -> None:
+    path = tmp_path / "metadata.csv"
+    row = valid_row("platform-positive")
+    index = {name: position for position, name in enumerate(METADATA_REQUIRED_COLUMNS)}
+    row[index["domain"]] = "real_staged"
+    row[index["split_role"]] = "external_real"
+    row[index["generator_provider"]] = ""
+    row[index["generator_model"]] = ""
+    row[index["generator_version"]] = ""
+    write_csv(path, list(METADATA_REQUIRED_COLUMNS), [row])
+    with pytest.raises(ContractError, match="must have blank family_id"):
+        load_source_metadata(path, require_files=False)
+
+
+def test_family_cannot_mix_positive_and_negative_sources(tmp_path: Path, write_csv) -> None:
+    path = tmp_path / "metadata.csv"
+    positive = valid_row("positive-variant")
+    negative = valid_row("negative-variant")
+    index = {name: position for position, name in enumerate(METADATA_REQUIRED_COLUMNS)}
+    positive[index["family_id"]] = "shared-family"
+    negative[index["family_id"]] = "shared-family"
+    negative[index["contains_spit"]] = "false"
+    negative[index["primary_label"]] = "non_spitting"
+    negative[index["negative_subtype"]] = "normal_activity"
+    write_csv(path, list(METADATA_REQUIRED_COLUMNS), [positive, negative])
+    with pytest.raises(ContractError, match="mixes contains_spit=true and false"):
+        load_source_metadata(path, require_files=False)

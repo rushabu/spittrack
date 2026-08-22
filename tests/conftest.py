@@ -16,9 +16,11 @@ def source_factory() -> Callable[..., SourceRecord]:
         *,
         domain: str = "synthetic",
         duration_s: float = 10.0,
+        family_id: str | None = None,
     ) -> SourceRecord:
         return SourceRecord(
             source_id=source_id,
+            family_id=(family_id or source_id) if domain == "synthetic" else None,
             file_name=f"{source_id}.mp4",
             domain=domain,
             contains_spit=contains_spit,
@@ -49,4 +51,3 @@ def write_csv() -> Callable[[Path, list[str], list[list[object]]], None]:
             writer.writerows(rows)
 
     return write
-
