@@ -1,0 +1,6 @@
+source_id,tracking_run_id,track_id,actor_role,action_label,action_start_s,action_end_s,negative_subtype,annotation_confidence,notes
+R01,tracking-186e4abba294bd0e,8,main_actor,spitting,1,4.5,,1,actual time from preview
+R02,tracking-186e4abba294bd0e,211,main_actor,normal_activity,11,14,normal_activity,1,no spit observed
+R03,tracking-186e4abba294bd0e,309,main_actor,drink,13,17,drink,1,drinking
+R05A,tracking-186e4abba294bd0e,64,main_actor,normal_activity,3,8,normal_activity,1,walking
+R05B,tracking-186e4abba294bd0e,6,main_actor,normal_activity,4,10,normal_activity,1,actual time from preview
