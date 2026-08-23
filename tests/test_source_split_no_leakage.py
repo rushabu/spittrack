@@ -17,7 +17,11 @@ def test_five_folds_are_balanced_disjoint_and_cover_every_synthetic_source_once(
     source_factory,
 ) -> None:
     sources = [source_factory(f"S{index:02d}", index <= 10) for index in range(1, 21)]
-    sources += [source_factory("R01", True, domain="real_staged")]
+    real_ids = {"R01", "R02", "R03", "R05A", "R05B"}
+    sources += [
+        source_factory(source_id, source_id in {"R01", "R02"}, domain="real_staged")
+        for source_id in sorted(real_ids)
+    ]
     folds = build_balanced_folds(sources, k=5, seed=42)
 
     tested: list[str] = []
@@ -27,8 +31,9 @@ def test_five_folds_are_balanced_disjoint_and_cover_every_synthetic_source_once(
         positive_test = {source.source_id for source in sources if source.contains_spit} & set(fold.test)
         negative_test = {source.source_id for source in sources if not source.contains_spit} & set(fold.test)
         assert len(positive_test) == len(negative_test)
-        assert "R01" not in set(fold.train) | set(fold.validation) | set(fold.test)
-        assert fold.external_real == ("R01",)
+        training_partitions = set(fold.train) | set(fold.validation) | set(fold.test)
+        assert not (real_ids & training_partitions)
+        assert set(fold.external_real) == real_ids
         assert not (set(fold.train_families) & set(fold.validation_families))
         assert not (set(fold.train_families) & set(fold.test_families))
         assert not (set(fold.validation_families) & set(fold.test_families))

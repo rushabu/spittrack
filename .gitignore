@@ -13,6 +13,7 @@ data/normalized/
 data/tracking/manifests/*.csv
 data/tracking/previews/
 data/tracking/rejections/
+data/tracking_real/
 data/processed/
 outputs/
 
@@ -20,4 +21,3 @@ outputs/
 !data/metadata/source_metadata.csv
 !data/annotations/action_intervals.csv
 !data/splits/.gitkeep
-

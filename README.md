@@ -91,6 +91,15 @@ python scripts/make_track_previews.py
 
 This writes one complete timestamped MP4 per source under `data/tracking/previews/`, with each tracked person outlined and labelled by track ID. Use `--source-id SOURCE_ID` for a single preview and `--overwrite` only when deliberately regenerating derived previews.
 
+Prepare track IDs for staged-real annotation without touching synthetic artifacts or training inputs:
+
+```bash
+python scripts/extract_tracks_real.py
+python scripts/make_track_previews.py --real-staged
+```
+
+The first command passes the unchanged frozen detector and tracker configurations over normalized real-holdout clips, writes the common manifest schema under `data/tracking_real/manifests/`, and prints the shared configuration-bound `real_tracking_run_id`. Rejections and previews remain under `data/tracking_real/rejections/` and `data/tracking_real/previews/`. This tree is evaluation-input preparation only: fold construction and `build_windows.py` continue to read only synthetic metadata partitions and `data/tracking/manifests/`.
+
 ## Fold construction
 
 The default `K=5` requires at least ten synthetic families: at least five positive and five negative. Positive and negative families are sorted independently and assigned deterministically across folds; each per-class fold count differs by at most one even when the global class totals are unequal. Construction never lowers `K`, drops families, or splits a family.

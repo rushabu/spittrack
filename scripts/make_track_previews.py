@@ -17,19 +17,24 @@ from spittrack.data.track_previews import render_track_preview
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--real-staged",
+        action="store_true",
+        help="Use isolated staged-real normalized videos, manifests, and preview outputs.",
+    )
+    parser.add_argument(
         "--normalized-root",
         type=Path,
-        default=Path("data/normalized/synthetic"),
+        help="Override the domain-specific normalized-video root.",
     )
     parser.add_argument(
         "--manifest-dir",
         type=Path,
-        default=Path("data/tracking/manifests"),
+        help="Override the domain-specific tracking-manifest directory.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/tracking/previews"),
+        help="Override the domain-specific preview output directory.",
     )
     parser.add_argument("--source-id", help="Render only one source")
     parser.add_argument("--overwrite", action="store_true")
@@ -40,23 +45,45 @@ def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
-        if not args.manifest_dir.is_dir():
+        normalized_root = args.normalized_root or Path(
+            "data/normalized/real_staged"
+            if args.real_staged
+            else "data/normalized/synthetic"
+        )
+        manifest_dir = args.manifest_dir or Path(
+            "data/tracking_real/manifests"
+            if args.real_staged
+            else "data/tracking/manifests"
+        )
+        output_dir = args.output_dir or Path(
+            "data/tracking_real/previews"
+            if args.real_staged
+            else "data/tracking/previews"
+        )
+        if args.real_staged:
+            synthetic_tracking = Path("data/tracking").resolve()
+            resolved_output = output_dir.resolve()
+            if resolved_output == synthetic_tracking or synthetic_tracking in resolved_output.parents:
+                raise ContractError(
+                    "Real preview rendering refuses to write under the synthetic tracking tree"
+                )
+        if not manifest_dir.is_dir():
             raise ContractError(
-                f"Tracking manifest directory does not exist: {args.manifest_dir}"
+                f"Tracking manifest directory does not exist: {manifest_dir}"
             )
-        manifests = sorted(args.manifest_dir.glob("*.csv"))
+        manifests = sorted(manifest_dir.glob("*.csv"))
         if args.source_id:
             manifests = [path for path in manifests if path.stem == args.source_id]
             if not manifests:
                 raise ContractError(f"Unknown tracked --source-id {args.source_id!r}")
         if not manifests:
-            raise ContractError(f"No tracking manifest CSV files found in: {args.manifest_dir}")
+            raise ContractError(f"No tracking manifest CSV files found in: {manifest_dir}")
 
         for manifest_path in manifests:
             source_id = manifest_path.stem
-            output_path = args.output_dir / f"{source_id}.mp4"
+            output_path = output_dir / f"{source_id}.mp4"
             frame_count = render_track_preview(
-                args.normalized_root / f"{source_id}.mp4",
+                normalized_root / f"{source_id}.mp4",
                 manifest_path,
                 output_path,
                 source_id=source_id,
