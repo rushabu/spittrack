@@ -29,6 +29,31 @@ flowchart LR
     I --> J["Track, interval, box, confidence, evidence"]
 ```
 
+## Local Flask video demonstration
+
+The presentation UI uses the existing frozen final model to process an uploaded video:
+normalization → YOLOv8s/ByteTrack → person windows → classification → event aggregation → evidence.
+It displays the original video, annotated playback, event clips, confidence and timestamps,
+processing logs, and downloadable JSON/CSV results. Predictions are not ground-truth labels.
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -e ".[web]"
+python scripts/demo.py
+```
+
+Open http://127.0.0.1:5000 and choose a video (up to 512 MB). Use a clip containing
+a clearly visible person for at least two continuous seconds. CPU processing may
+take longer than the clip duration. The final model, provenance and config snapshot
+must be present in `outputs/final_model/`; detector weights must also be available.
+Browser playback uses bundled FFmpeg to convert outputs to H.264. Only one run is
+processed at a time, in an isolated subprocess; closing the server interrupts work.
+Refreshing the result URL resumes viewing its saved status. Files remain under
+`outputs/web_demo/<run-id>/`; remove old run directories when no longer needed.
+This is a local presentation server; keep it bound to localhost.
+The demo calls arbitrary-video inference and does not invoke the one-time staged-real
+evaluation runner or alter its receipt, annotations, training, or evaluation outputs.
+
 ## Install for local contract and CPU tests
 
 Python 3.11 is the target research runtime. Create an environment, then install the package in editable mode:

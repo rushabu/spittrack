@@ -16,12 +16,16 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
+web = ["Flask>=3.1,<4", "imageio-ffmpeg>=0.6,<0.7"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"spittrack.web" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpitTrack · Video demonstration</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='demo.css') }}">
+  <script defer src="{{ url_for('static', filename='demo.js') }}"></script>
+</head>
+<body>
+  <header><a href="/" class="brand">◉ SpitTrack</a><span>CAPSTONE / LIVE DEMONSTRATION</span><span class="badge">Local inference · CPU</span></header>
+  <main>
+    <div class="eyebrow">FROM SURVEILLANCE TO EVIDENCE</div>
+    <h1>One video.<br><em>The complete picture.</em></h1>
+    <p class="intro">Follow a real video through person detection, identity tracking, action recognition, and timestamped spitting-event evidence.</p>
+    <section class="pipeline" aria-label="How the pipeline works">
+      <div><b>01 / NORMALIZE</b><span>25 frames per second</span></div>
+      <div><b>02 / DETECT + TRACK</b><span>YOLOv8s + ByteTrack</span></div>
+      <div><b>03 / RECOGNIZE</b><span>2-second windows · 16 frames</span></div>
+      <div><b>04 / BUILD EVIDENCE</b><span>Aggregate events + render clips</span></div>
+    </section>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <section class="workspace">
+      <aside class="panel">
+        <div class="eyebrow">01 / INPUT</div><h2>Bring your footage</h2>
+        <p>Choose a real video with a clearly visible person for at least two continuous seconds.</p>
+        <form id="upload-form">
+          <label class="upload">Select video<input id="video-file" name="video" type="file" accept=".mp4,.mov,.avi,.mkv,.webm" required><small>MP4, MOV, AVI, MKV, WebM · up to 512 MB</small></label>
+          <video id="source-video" controls playsinline hidden></video>
+          <button id="run-button" type="submit" {% if error %}disabled{% endif %}>Analyze video →</button>
+        </form>
+        <dl><dt>Final model</dt><dd>{{ model.get('model_name', 'Unavailable') }}</dd><dt>Frozen decision threshold</dt><dd>{{ '%.4f'|format(model.get('median_fold_validation_threshold', 0)) }}</dd></dl>
+        <p class="note">Uses the trained final checkpoint and validation-selected threshold. CPU analysis can take longer than the video duration. Uploads stay in this project's local outputs folder.</p>
+      </aside>
+      <section class="panel output">
+        <div class="eyebrow">02 / ANALYSIS</div><h2>See the pipeline in action</h2>
+        <p id="status" role="status" aria-live="polite">Ready when you are. Upload a video to begin.</p>
+        <div id="waiting" class="placeholder"><span>◎</span><h3>Your annotated video appears here</h3><p>Green boxes identify tracked people.<br>Red boxes mark predicted spitting events.</p></div>
+        <div id="results" hidden>
+          <video id="result-video" controls playsinline></video>
+          <div id="metrics" class="metrics"></div>
+          <nav id="downloads" aria-label="Download results"></nav>
+          <h3>Detected events</h3><p class="note">Predicted events are model outputs for review, not ground-truth labels.</p>
+          <div id="events"></div>
+        </div>
+        <details id="log-details" hidden><summary>Processing log</summary><pre id="log"></pre><a id="log-download">Download full log</a></details>
+      </section>
+    </section>
+    <footer>SpitTrack / Person-centric spitting-event detection <span>Upload → Track → Classify → Review</span></footer>
+  </main>
+</body>
+</html>
